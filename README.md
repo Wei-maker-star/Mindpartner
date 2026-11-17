@@ -16,7 +16,9 @@ Teacher agent persona: experienced school mental health educator. Student agent 
 
 The login page supports separate teacher/student registration and password login. Passwords are stored as scrypt hashes (random salt); the server issues a seven-day HttpOnly, SameSite cookie. A teacher invite code is required to register a teacher; set `TEACHER_SIGNUP_CODE` in `.env`. API routes check login and role, and teacher task lists are scoped to their account.
 
-Users and app records are stored in JSON files under `data/`, which is git-ignored. Sessions currently live in server memory and are lost when the process restarts. This is useful for local development only: JSON files are not a production database, do not provide reliable concurrent writes/backups, and are ephemeral on many hosting services. Before public deployment, migrate users, sessions, conversations, tasks, and submissions to a managed database and use a durable session store or a managed auth provider.
+For local development without `DATABASE_URL`, users, app records, and sessions are stored in JSON files under `data/`, which is git-ignored. For deployment with `DATABASE_URL`, the app uses Supabase Postgres for accounts, hashed sessions, student memory, classroom tasks, and submissions. Render's filesystem is ephemeral, so configure the database before deploying. Existing local JSON demo data is not automatically imported.
+
+The activity library lives in the tracked `data/game-catalog.json` file. It contains 63 classroom activity designs; student-facing steps are assembled by activity type, and teachers can preview, revise with the agent, publish a versioned class task, or export step-by-step `.pptx` slides. Drawing activities have an in-browser canvas with PNG download. A teacher can revise an activity through iterative natural-language chat; after each successful edit, the current version and up to three prior versions are saved to their resource library. In classroom management, “按反馈改游戏” reopens the published snapshot with anonymized participation, completion, skipped-step, time and choice-count summaries. Raw student names, chat and free-text reflections are not sent to the agent for this tuning flow. Classroom progress saves after each completed step and in-game exchange; final submission updates the same record. Self-started practice records stay in the student's private memory.
 
 ## Routes
 
@@ -25,25 +27,23 @@ Users and app records are stored in JSON files under `data/`, which is git-ignor
 - `POST /api/teacher/outline` — one-shot outline generation.
 - `POST /api/teacher/tasks`, `GET /api/teacher/tasks` — create and list the signed-in teacher's classroom tasks.
 - `GET /api/student/tasks?code=...` — student joins a class activity.
-- `POST /api/student/tasks/submit` — save activity choices, reflections and in-game chat.
+- `POST /api/student/tasks/progress`, `POST /api/student/tasks/submit` — incrementally save and finalize activity choices, reflections and in-game chat under the same classroom record.
+- `POST /api/student/practices/complete` — save an opted-in student's self-started activity and update their private practice progress.
 - `GET /api/teacher/tasks/:code/submissions` — review submissions for the signed-in teacher's task.
+- `GET /api/teacher/tasks/:code/insights` — return anonymous class-level activity metrics for game tuning.
+- `POST /api/teacher/game-edit` — revise the game using teacher chat history and optional anonymous class metrics.
 - `POST /api/student/chat` — student companion response; a phrase-based urgent support response runs before model generation.
 - `POST /api/student/companion/daily` — daily cosmetic appearance from explicit interest/activity themes, not mood or diagnosis.
 - `GET` / `DELETE /api/student/memory` — restore or delete the signed-in student's private conversation.
 
 Student conversations are stored by server-authenticated student ID and conversation ID, then sent to TokenDance for replies. Review the model provider's data handling before using real student information. The urgent phrase check is not clinical risk detection and can miss urgent situations or produce false positives.
 
-## Recommended deployment target
+## Web deployment direction (Render + Supabase)
 
-Use **Tencent CloudBase** as the first platform to evaluate for this product:
+For a free web demo, use one **Render Web Service** for both the frontend and Node API; `server.js` serves `index.html` and `app.js` from the same origin. Put account and activity data in **Supabase Postgres** by setting `DATABASE_URL` to the Supabase Session Pooler URI (port 5432) and running `supabase/schema.sql` once in Supabase SQL Editor. Do not publish real student records during the prototype stage.
 
-- **Student app:** build/publish the native Mini Program through WeChat DevTools, initialize its CloudBase environment, and call protected backend functions. CloudBase's Mini Program flow can derive the caller identity on the server, so do not trust a student ID sent in request JSON.
-- **Teacher web app:** put the static teacher portal on CloudBase Hosting.
-- **Backend:** put the Node API in CloudBase CloudRun (container) to preserve the current Node server shape, or port individual routes to Cloud Functions. Keep TokenDance API credentials and the teacher invitation code in server-side secrets.
-- **Database and auth:** use CloudBase PostgreSQL for user accounts, sessions, conversations, courses, task codes, submissions, consent, and audit records. Replace `data/*.json` and the in-memory `sessions` Map with PostgreSQL-backed storage before deployment. Configure database permissions so clients cannot read other students' data; authorize each request by the verified session/user and teacher-class membership.
+If the Supabase tables already exist, run the updated `supabase/schema.sql` again so it can add the `classroom_tasks.game_definition` column used to keep each published activity's exact steps.
 
-The current student page is a responsive web prototype, not a native Mini Program yet. The app views need conversion to Mini Program WXML/WXSS/JS. The backend now has a real local account/password registration and login flow, but its JSON user store and in-memory session map are development-only; they are not suitable for a multi-instance/public deployment.
+See [RENDER_DEPLOY.md](./RENDER_DEPLOY.md) for the dashboard settings, environment variables, and database setup. Render free services sleep after 15 minutes idle; Render's own free Postgres expires after 30 days. Supabase Free currently has a 500 MB database allowance and can pause inactive projects. These are prototype limits, not an uptime guarantee.
 
-CloudBase has a Mini Program quick start and supports Node.js services, hosting, authentication, cloud functions, and PostgreSQL. Its Mini Program Growth Plan currently advertises a six-month environment/resource pack for eligible applicants; this is a time-limited offer, not a promise of permanently free hosting. Check the CloudBase console's region, quota, and current pricing before launch. TokenDance usage may be separately billed.
-
-Before school use, add enrollment/invitation controls, class membership authorization, rate limits, audit trails, backups, deletion/retention policy, consent and a staffed safeguarding workflow. Use synthetic data until that review is complete.
+Keep TokenDance and database credentials in Render's environment settings. Before school use, add enrollment controls, class membership authorization, request limits, audit trails, backups, deletion/retention policy, consent and a staffed safeguarding workflow. Use synthetic data until that review is complete.

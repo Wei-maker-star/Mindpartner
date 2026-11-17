@@ -32,10 +32,15 @@ function addChatMessage(role, content, showActivity = false, containerId = 'mess
     const icon = document.createElement('span'); icon.className = 'tiny'; icon.textContent = role === 'teacher' ? '✦' : companionFace(); row.append(icon);
   }
   const bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.innerHTML = role === 'user' ? escapeHtml(content) : renderMarkdown(content);
-  if (showActivity) {
-    const button = document.createElement('button'); button.className = 'suggestion'; button.style.marginTop = '9px';
-    button.textContent = '想试试一个小练习'; button.onclick = () => toast('练习已开始：当前为演示，不会保存或同步记录');
-    bubble.append(document.createElement('br'), button);
+  if (showActivity && containerId === 'messages') {
+    const recommendation = typeof showActivity === 'object' ? showActivity : null;
+    if (recommendation?.id) {
+      const card = document.createElement('div'); card.className = 'recommended-game-card';
+      const title = document.createElement('b'); title.textContent = `🌱 一起试试：${recommendation.title}`;
+      const reason = document.createElement('p'); reason.textContent = recommendation.reason || '这是一个可以自己决定是否参加的小练习。';
+      const start = document.createElement('button'); start.className = 'btn small primary'; start.textContent = '开始游戏'; start.onclick = () => startRecommendedGame(recommendation.id);
+      card.append(title, reason, start); bubble.append(document.createElement('br'), card);
+    }
   }
   row.append(bubble);
   if (role === 'user') { const icon = document.createElement('span'); icon.className = 'tiny'; icon.textContent = '🙂'; row.append(icon); }
@@ -142,7 +147,7 @@ window.sendText = async function (message) {
   try {
     const response = await fetch('/api/student/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, studentId: memoryStudentId, conversationId: privateConversationId, scope: 'private', ...companionRequestContext() }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '暂时无法连接');
-    clearProgress('studentProgress'); addChatMessage('assistant', data.reply, !data.safetyEscalation);
+    clearProgress('studentProgress'); addChatMessage('assistant', data.reply, data.safetyEscalation ? false : data.recommendation || false);
     conversationHistory.push({ role: 'user', content: message }, { role: 'assistant', content: data.reply }); conversationHistory = conversationHistory.slice(-12);
     refreshDailyAppearance();
   } catch (error) {
@@ -195,37 +200,102 @@ function gameIdFor(game) { return `game-${games.findIndex(item => item.title ===
 function renderGameCatalog(filter = 'all') {
   const grid = document.getElementById('gameGrid'); if (!grid) return;
   const selected = filter || 'all';
-  grid.innerHTML = games.map((g, i) => ({ g, i })).filter(({ g }) => selected === 'all' || g.tags.includes(selected)).map(({ g, i }) =>
-    `<article class="game"><div class="gicon">${g.icon}</div><h3>${g.title}</h3><p>${g.desc}</p><div class="game-foot"><span class="pill">${g.tags[0]}</span><span style="font-size:10px;color:#8c9991">${g.people}</span></div><div class="game-action-row"><span>${g.risk}</span><button class="btn small" onclick="editGame(${i})">活动详情</button><button class="btn small primary" onclick="publishGame(${i})">下发课堂</button></div></article>`).join('');
+  grid.innerHTML = games.map((g, i) => ({ g, i })).filter(({ g }) => selected === 'all' || g.category === selected || g.tags.includes(selected)).map(({ g, i }) =>
+    `<article class="game" data-game-id="${g.id || `legacy-${i}`}"><div class="gicon">${g.icon}</div><h3>${g.title}</h3><p>${g.desc}</p><div class="game-foot"><span class="pill">${g.category || g.tags[0]}</span><span style="font-size:10px;color:#8c9991">${g.people}</span></div><div class="game-action-row"><button class="btn small" onclick="editGame(${i})">预览 / 修改</button><button class="btn small" onclick="exportGamePpt('${g.id || `legacy-${i}`}')">导出 PPT</button><button class="btn small primary" onclick="publishGame(${i})">下发课堂</button></div><small class="game-risk">${g.risk}</small></article>`).join('');
 }
 window.renderGames = renderGameCatalog;
 const activeFilter = document.querySelector('.filters .filter.on[data-filter]')?.dataset.filter || 'all';
 renderGameCatalog(activeFilter);
 
+let fullGameCatalog = [];
+function makeGameSteps(game) {
+  const close = ['我想试试', '我先看看', '我想跳过这一步'];
+  const wrap = { title: '收尾：带走一个小发现', prompt: '你愿意带走哪一个小发现或下一步？也可以选择先不回答。', type: 'choice', options: ['记住一个发现', '做一件小事', '找信任的人聊聊', '先到这里'] };
+  const opening = { title: '先选一种参与方式', prompt: `这是「${game.title}」。${game.desc}你可以自己完成、和同伴一起，也可以旁观或跳过。`, type: 'choice', options: ['我想自己试试', '我想和同伴一起', '我先看看', '我想跳过'] };
+  const debrief = { title: '回看过程', prompt: '有没有哪个部分让你想多看一眼？只分享自己愿意分享的内容。', type: 'text', placeholder: '可以写几个词，也可以留空。' };
+  if (game.type === 'drawing') return [opening, { title: `创作：${game.title}`, prompt: `用画布画出你的想法。可以用颜色、形状和线条，不需要画得像；你可以随时清空、下载图片或跳过。`, type: 'draw' }, { ...debrief, title: '给作品一个名字', prompt: '如果愿意，为作品取个名字，或者写下一句你想记住的话。' }, wrap];
+  if (game.type === 'mindful') return [opening, { title: '短暂体验', prompt: `${game.desc}保持舒服的节奏，不适时可以停止。`, type: 'timer', seconds: 25 }, { title: '注意当下', prompt: '现在你注意到什么变化？没有变化也完全可以。', type: 'choice', options: ['感觉差不多', '稍微安静一点', '我注意到周围的事物', '我不确定', '想结束练习'] }, wrap];
+  if (game.type === 'story') {
+    if (game.id === 'story-chain-drawing') return [opening, { title: '接力创作：共同画故事', prompt: '把屏幕交给下一位，每位参与者轮流添一笔、一种颜色或一个角色，大家共同完成故事画。也可以由一人操作、其他人提出想法。', type: 'draw' }, { title: '给故事接龙', prompt: '轮流为画面补充一句故事，可以只说虚构角色，不讲自己的经历。', type: 'turns' }, wrap];
+    return [opening, { title: '抽取故事素材卡', prompt: '为虚构故事选角色、地点和物品，小组成员可以轮流选一张卡。', type: 'choice', options: ['正在学习新事物的角色', '有点紧张的探险家', '愿意帮忙的伙伴', '一件神奇物品', '小组自己想'] }, { title: '轮流接龙创作', prompt: `${game.desc}每个人补充一句，让下一个人继续；可以使用虚构情节。`, type: 'turns' }, wrap];
+  }
+  if (game.type === 'auction') return [opening, { title: '领取虚拟筹码', prompt: '小组每人获得 10 枚虚拟筹码，只用于游戏。选择最希望角色拥有的资源，不评价谁的需要更重要。', type: 'choice', options: ['被认真倾听', '休息和空间', '一点勇气', '可靠的帮助', '表达自己的选择'] }, { title: '资源拍卖', prompt: '小组可以把 10 枚虚拟筹码分配给不同资源，轮流说出选择。拍卖的是虚构资源，不是个人情绪、隐私或同学。', type: 'auction', options: ['被认真倾听', '休息和空间', '一点勇气', '可靠的帮助', '表达自己的选择'] }, wrap];
+  if (game.type === 'association') return [opening, { title: '抽取一件物品', prompt: '从身边选一件普通物品（或选下面的虚拟物品），轮流说出它还能变成什么、代表什么资源或进入什么故事。', type: 'choice', options: ['纸杯', '钥匙', '一片叶子', '橡皮', '一颗星星', '小组自选'] }, { title: '接住同伴的联想', prompt: '把屏幕交给下一位，接着前一位的想法，增加一个新用途或故事情节。联想没有标准答案，不分析彼此。', type: 'turns' }, wrap];
+  if (game.type === 'group') return [opening, { title: '轮流参与', prompt: `${game.desc}可以在一台设备上轮流操作，也可以由一人记录小组共同答案。每个人都可以说“跳过”。`, type: 'choice', options: ['我愿意先来', '我愿意稍后参与', '我们小组共同完成', '我先旁观 / 跳过'] }, { title: '小组共创与倾听', prompt: '把设备传给下一位，轮流说、写或用图形表达；也可以只记录小组共同决定的答案。', type: 'turns' }, wrap];
+  if (game.type === 'plan') return [opening, { title: '描述一个小情境', prompt: `${game.desc}用一个轻量、虚构或日常情境练习，不必填写隐私。`, type: 'text', placeholder: '可以只写一个目标或一个情境……' }, { title: '选出第一小步', prompt: '哪一步比较小、容易开始，而且是你愿意尝试的？', type: 'choice', options: ['花 2 分钟试一下', '把任务拆小', '请人陪我开始', '先安排休息', '暂时不决定'] }, wrap];
+  if (game.type === 'text') return [opening, { title: '完成句子', prompt: `${game.desc}只写愿意记录的部分，也可以跳过。`, type: 'text', placeholder: '写一点点就好……' }, { title: '挑选一句带走的话', prompt: '哪句话更适合现在的你？', type: 'choice', options: ['我可以慢慢来', '我可以寻求帮助', '我不必马上回答', '我想自己想一想'] }, wrap];
+  return [opening, { title: '挑选一个入口', prompt: `${game.desc}选择一个比较舒服的方式开始。`, type: 'choice', options: ['从颜色或图像开始', '从一个词开始', '和同伴讨论', ...close] }, debrief, wrap];
+}
+async function loadCompleteGameCatalog() {
+  try {
+    const response = await fetch('/data/game-catalog.json'); if (!response.ok) return;
+    fullGameCatalog = await response.json();
+    window.XINBAN_GAME_CATALOG = fullGameCatalog;
+    for (const game of fullGameCatalog) { game.steps = makeGameSteps(game); games.push(game); gamePlaybooks[game.title] = game.steps; }
+    const filterBar = document.querySelector('#planner .filters');
+    if (filterBar) {
+      filterBar.replaceChildren();
+      const all = ['全部游戏', ...new Set(fullGameCatalog.map(game => game.category))];
+      all.forEach((label, index) => { const button = document.createElement('button'); button.className = `filter ${index === 0 ? 'on' : ''}`; button.textContent = label; button.onclick = () => { filterBar.querySelectorAll('.filter').forEach(item => item.classList.remove('on')); button.classList.add('on'); renderGameCatalog(label === '全部游戏' ? 'all' : label); }; filterBar.append(button); });
+      const search = document.createElement('input'); search.className = 'game-search'; search.placeholder = '搜索游戏名称、主题或关键词';
+      search.oninput = () => { const q = search.value.trim().toLowerCase(); document.querySelectorAll('#gameGrid .game').forEach(card => { const game = games.find(item => item.id === card.dataset.gameId); card.hidden = Boolean(q) && (!game || !`${game.title} ${game.desc} ${game.category} ${(game.keywords || []).join(' ')}`.toLowerCase().includes(q)); }); };
+      filterBar.append(search);
+    }
+    renderGameCatalog('all');
+  } catch { /* The original starter games remain available if the catalog cannot load. */ }
+}
+loadCompleteGameCatalog();
+
 let gameEditorState = null;
 let gamePreviewTimer = null;
+function createDrawingBoard(host, onChange = () => {}) {
+  const wrap = document.createElement('div'); wrap.className = 'drawing-board';
+  const canvas = document.createElement('canvas'); canvas.width = 900; canvas.height = 520; canvas.setAttribute('aria-label', '可自由绘画的画布');
+  const tools = document.createElement('div'); tools.className = 'drawing-tools';
+  const colors = ['#326c5d', '#e67c65', '#e5b94e', '#718ac7', '#9b78b5', '#283b34']; let color = colors[0], drawing = false, previous = null;
+  colors.forEach(value => { const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'draw-color'; chip.style.background = value; chip.setAttribute('aria-label', `选择颜色 ${value}`); chip.onclick = () => { color = value; tools.querySelectorAll('.draw-color').forEach(item => item.classList.toggle('active', item === chip)); }; tools.append(chip); });
+  const clear = document.createElement('button'); clear.className = 'btn small'; clear.textContent = '清空'; clear.onclick = () => { canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height); onChange(canvas); };
+  const download = document.createElement('button'); download.className = 'btn small'; download.textContent = '下载 PNG'; download.onclick = () => { const link = document.createElement('a'); link.download = '心伴芽-我的画作.png'; link.href = canvas.toDataURL('image/png'); link.click(); };
+  tools.append(clear, download); wrap.append(canvas, tools); host.append(wrap);
+  const point = event => { const rect = canvas.getBoundingClientRect(); return { x: (event.clientX - rect.left) * canvas.width / rect.width, y: (event.clientY - rect.top) * canvas.height / rect.height }; };
+  canvas.onpointerdown = event => { drawing = true; previous = point(event); canvas.setPointerCapture(event.pointerId); };
+  canvas.onpointermove = event => { if (!drawing) return; const next = point(event), ctx = canvas.getContext('2d'); ctx.strokeStyle = color; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(previous.x, previous.y); ctx.lineTo(next.x, next.y); ctx.stroke(); previous = next; };
+  canvas.onpointerup = () => { drawing = false; previous = null; onChange(canvas); };
+  canvas.onpointercancel = () => { drawing = false; previous = null; };
+  return canvas;
+}
 function ensureGameEditor() {
   let back = document.getElementById('gameEditorBack'); if (back) return back;
   back = document.createElement('div'); back.id = 'gameEditorBack'; back.className = 'game-editor-back';
-  back.innerHTML = `<section class="game-editor-modal"><header class="game-editor-head"><div><small>互动预览 · AI 协作改编</small><h2 id="gameEditorTitle"></h2></div><button class="btn" onclick="closeGameEditor()">关闭 ×</button></header><div class="game-editor-grid"><section class="game-preview-pane"><div><b>学生游戏预览</b><div id="gameEditorMeta" class="game-preview-meta"></div></div><div class="game-preview-card"><div id="gamePreviewStep"></div></div><div class="game-preview-controls"><button id="gamePreviewPrev" class="btn" onclick="moveGamePreview(-1)">上一步</button><span id="gamePreviewCount" class="game-preview-step"></span><button id="gamePreviewNext" class="btn primary" onclick="moveGamePreview(1)">下一步</button></div></section><section class="game-agent-pane"><div class="game-agent-intro"><b>游戏改编 Agent</b><br>描述你想调整的规则、提问、对象或活动风格。右侧对话和左侧预览分开显示。</div><div id="gameAgentMessages" class="game-agent-messages"></div><div class="game-agent-compose"><textarea id="gameEditInput" placeholder="例如：改成两人互相倾听的版本，把书写步骤换成可选卡片，不要求分享隐私。" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGameEditChat()}"></textarea><button id="gameEditSend" class="btn primary" onclick="sendGameEditChat()">发送 ↑</button></div></section></div><footer class="game-editor-footer"><button class="btn" onclick="closeGameEditor()">关闭</button><button class="btn primary" onclick="saveEditedGame()">保存到我的游戏</button></footer></section>`;
+  back.innerHTML = `<section class="game-editor-modal"><header class="game-editor-head"><div><small>互动预览 · AI 协作改编</small><h2 id="gameEditorTitle"></h2></div><button class="btn" onclick="closeGameEditor()">关闭 ×</button></header><div class="game-editor-grid"><section class="game-preview-pane"><div><b>学生游戏预览</b><div id="gameEditorMeta" class="game-preview-meta"></div></div><div class="game-preview-card"><div id="gamePreviewStep"></div></div><div class="game-preview-controls"><button id="gamePreviewPrev" class="btn" onclick="moveGamePreview(-1)">上一步</button><span id="gamePreviewCount" class="game-preview-step"></span><button id="gamePreviewNext" class="btn primary" onclick="moveGamePreview(1)">下一步</button></div></section><section class="game-agent-pane"><div class="game-agent-intro"><b>游戏改编 Agent</b><br>描述你想调整的规则、提问、对象或活动风格。右侧对话和左侧预览分开显示。</div><div id="gameAgentMessages" class="game-agent-messages"></div><div class="game-agent-compose"><textarea id="gameEditInput" placeholder="例如：改成两人互相倾听的版本，把书写步骤换成可选卡片，不要求分享隐私。" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGameEditChat()}"></textarea><button id="gameEditSend" class="btn primary" onclick="sendGameEditChat()">发送 ↑</button></div></section></div><footer class="game-editor-footer"><button class="btn" onclick="closeGameEditor()">关闭</button><button id="editorPptButton" class="btn" onclick="exportEditedGamePpt()">导出此游戏 PPT</button><button class="btn" onclick="publishEditedGame()">下发课堂</button><button class="btn primary" onclick="saveEditedGame()">保存到我的游戏</button></footer></section>`;
   document.body.append(back); return back;
 }
-window.editGame = function (index, savedGame = null, resource = null) {
+window.editGame = function (index, savedGame = null, resource = null, usageSummary = null) {
   const source = savedGame || games[index]; if (!source) return;
   document.getElementById('modalback')?.classList.remove('show');
-  const book = savedGame?.steps || gamePlaybooks[source.title] || Object.values(gamePlaybooks)[index] || [];
-  const steps = book.length ? book.map((step, stepIndex) => ({ title: step.title || `第 ${stepIndex + 1} 步`, prompt: step.prompt || '选择一个适合自己的方式完成这一步。', type: step.type === 'text' ? 'text' : step.type === 'timer' ? 'timer' : 'choice', seconds: step.seconds || 20, options: step.options || [] })) : [
+  const book = savedGame?.steps || source.steps || gamePlaybooks[source.title] || Object.values(gamePlaybooks)[index] || [];
+  const steps = book.length ? book.map((step, stepIndex) => ({ ...step, title: step.title || `第 ${stepIndex + 1} 步`, prompt: step.prompt || '选择一个适合自己的方式完成这一步。', type: ['text', 'timer', 'draw'].includes(step.type) ? step.type : 'choice', seconds: step.seconds || 20, options: step.options || [] })) : [
     { title: '选择参与方式', prompt: '你可以自己完成，也可以和同伴一起。愿意时再开始。', type: 'choice', options: ['我想试试', '我先看看', '和同伴一起'] },
     { title: '探索一个小问题', prompt: '想一想这项活动对你有什么帮助。可以写下来，也可以跳过。', type: 'text', options: [] },
     { title: '选一个小行动', prompt: '选一件轻松、可实现的小事，为活动收尾。', type: 'choice', options: ['先休息一下', '找人聊聊', '做一件小事'] }
   ];
-  gameEditorState = { game: { title: source.title, goal: source.goal || source.desc || '', people: source.people || '学生个人或小组', risk: source.risk || '教师带领', steps }, history: [], previewIndex: 0, answers: {}, resourceId: resource?.id || null };
+  gameEditorState = { game: { ...source, title: source.title, goal: source.goal || source.desc || '', people: source.people || '学生个人或小组', risk: source.risk || '教师带领', steps }, history: [], revisions: Array.isArray(source.revisionHistory) ? source.revisionHistory : [], usageSummary, previewIndex: 0, answers: {}, resourceId: resource?.id || null };
   const back = ensureGameEditor(); back.classList.add('show');
   document.getElementById('gameAgentMessages').replaceChildren();
   appendGameAgentMessage('assistant', '可以直接告诉我希望如何修改。修改后左侧会更新，你可以逐步点击选项和输入内容预览游戏。');
+  if (usageSummary) appendGameAgentMessage('assistant', `已载入${usageSummary.scope === 'student' ? '该学生的' : '课堂'}汇总：${usageSummary.submissionCount} 份记录，完成率 ${usageSummary.completionRate}%，跳过 ${usageSummary.skippedCount} 步，绘画 ${usageSummary.drawingCount} 次。改编时只会参考这些统计和选项计数，不会把学生姓名、聊天原文或自由文本发送给 Agent。`);
   renderGamePreview(); document.getElementById('gameEditInput').focus();
 };
 window.closeGameEditor = function () { if (gamePreviewTimer) clearInterval(gamePreviewTimer); document.getElementById('gameEditorBack')?.classList.remove('show'); };
+window.exportEditedGamePpt = function () { if (gameEditorState?.game) window.exportGamePpt?.(gameEditorState.game); };
+window.publishEditedGame = async function () {
+  const game = gameEditorState?.game; if (!game) return;
+  try {
+    const response = await fetch('/api/teacher/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: game.title, gameId: game.id || `custom-${Date.now()}`, game, className: '我的课堂' }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '下发失败');
+    closeGameEditor(); showTaskShare(data.task); loadClassroomTasks();
+  } catch (error) { toast(error.message || '下发失败，请稍后重试'); }
+};
 function renderGamePreview() {
   if (!gameEditorState) return;
   if (gamePreviewTimer) clearInterval(gamePreviewTimer);
@@ -241,6 +311,9 @@ function renderGamePreview() {
   view.append(heading, prompt);
   if (step.type === 'text') {
     const field = document.createElement('textarea'); field.className = 'game-preview-input'; field.placeholder = '写下愿意记录的内容，也可以留空或跳过'; field.value = answers[previewIndex] || ''; field.oninput = () => { answers[previewIndex] = field.value; }; view.append(field);
+  } else if (step.type === 'draw') {
+    const canvas = createDrawingBoard(view, currentCanvas => { gameEditorState.answers[previewIndex] = currentCanvas.toDataURL('image/jpeg', .65); });
+    const saved = answers[previewIndex]; if (saved?.startsWith('data:image/')) { const image = new Image(); image.onload = () => canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height); image.src = saved; }
   } else if (step.type === 'timer') {
     const timer = document.createElement('div'); timer.className = 'game-preview-timer'; timer.textContent = `${step.seconds || 20} 秒`;
     const start = document.createElement('button'); start.className = 'btn'; start.textContent = '开始短练习'; start.onclick = () => { if (gamePreviewTimer) clearInterval(gamePreviewTimer); let left = step.seconds || 20; start.disabled = true; gamePreviewTimer = setInterval(() => { left -= 1; timer.textContent = left > 0 ? `${left} 秒` : '完成了'; if (left <= 0) { clearInterval(gamePreviewTimer); start.disabled = false; start.textContent = '再来一次'; answers[previewIndex] = '完成短练习'; } }, 1000); };
@@ -269,21 +342,25 @@ window.sendGameEditChat = async function () {
   state.history.push({ role: 'user', content: request }); appendGameAgentMessage('user', request);
   const progress = document.createElement('div'); progress.className = 'game-agent-message'; progress.textContent = 'Agent 正在改编游戏…'; document.getElementById('gameAgentMessages').append(progress);
   try {
-    const response = await fetch('/api/teacher/game-edit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ game: state.game, request }) });
+    const previousGame = JSON.parse(JSON.stringify(state.game));
+    const response = await fetch('/api/teacher/game-edit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ game: state.game, request, history: state.history.slice(-8), usageSummary: state.usageSummary || undefined }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '游戏修改失败');
-    progress.remove(); state.game = data.game; state.previewIndex = 0; state.answers = {}; state.history.push({ role: 'assistant', content: data.reply });
+    progress.remove(); state.revisions = [...state.revisions, { savedAt: new Date().toISOString(), note: request.slice(0, 240), game: previousGame }].slice(-3); state.game = data.game; state.previewIndex = 0; state.answers = {}; state.history.push({ role: 'assistant', content: data.reply });
     appendGameAgentMessage('assistant', data.reply); renderGamePreview();
+    try { await window.saveEditedGame(true); appendGameAgentMessage('assistant', '本次改编已自动保存为个人游戏版本；你也可以继续对话修改，或下发课堂。'); }
+    catch { appendGameAgentMessage('assistant', '本次修改已在页面预览，但自动保存未成功。请点击“保存到我的游戏”重试。'); }
   } catch (error) { progress.textContent = error.message || '暂时无法修改，请稍后重试。'; }
   finally { button.disabled = false; input.focus(); }
 };
-window.saveEditedGame = async function () {
+window.saveEditedGame = async function (quiet = false) {
   if (!gameEditorState) return;
   const state = gameEditorState, id = state.resourceId || `game-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`;
   try {
-    const response = await fetch('/api/teacher/resources', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, title: state.game.title, kind: '自定义游戏', content: JSON.stringify(state.game, null, 2) }) });
+    const savedGame = { ...state.game, revisionHistory: state.revisions.slice(-3) };
+    const response = await fetch('/api/teacher/resources', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, title: state.game.title, kind: '自定义游戏', content: JSON.stringify(savedGame, null, 2) }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '保存失败');
-    state.resourceId = id; await loadTeacherResources(); toast('游戏已保存到你的个人资源库');
-  } catch (error) { toast(error.message || '保存失败，请稍后重试'); }
+    state.resourceId = id; await loadTeacherResources(); if (!quiet) toast('游戏已保存到你的个人资源库');
+  } catch (error) { if (!quiet) toast(error.message || '保存失败，请稍后重试'); throw error; }
 };
 
 function ensureStudentJoinPanel() {
@@ -426,7 +503,7 @@ function makePlayer() {
   if (document.getElementById('gamePlayerBack')) return;
   const back = document.createElement('div'); back.id = 'gamePlayerBack'; back.className = 'game-player-back';
   back.innerHTML = `<section class="game-player"><header class="game-player-head"><div><span class="eyebrow">CLASSROOM ACTIVITY</span><h2 id="playerTitle"></h2></div><button class="close" onclick="closeGamePlayer()">×</button></header>
-    <div id="playerConsent" class="player-consent"><div class="student-share-note">🔒 课堂说明：如果继续参加，本活动中的选择、文字和你与心伴的活动对话会提交给授课老师，用于课堂记录。你可以跳过任何问题；请不要填写不想分享的个人信息。</div><label class="consent-check"><input id="shareConsent" type="checkbox"> 我知道本次课堂活动记录会提交给授课老师。</label><button class="btn primary" onclick="beginClassGame()">同意并开始</button></div>
+    <div id="playerConsent" class="player-consent"><div class="student-share-note">🔒 课堂说明：如果继续参加，本活动中的选择、文字、画作和你与心伴的活动对话会提交给授课老师，用于课堂记录。你可以跳过任何问题；请不要填写不想分享的个人信息。</div><label class="consent-check"><input id="shareConsent" type="checkbox"> 我知道本次课堂活动记录会提交给授课老师。</label><button class="btn primary" onclick="beginClassGame()">同意并开始</button></div>
     <div id="gamePlayContent" style="display:none"><div class="student-share-note">🔒 本次活动记录会提交给授课老师。你可以跳过任何问题。</div>
     <div class="game-progress-head"><span id="gameStepLabel"></span><span id="gameStepCount"></span></div><div class="game-progress"><i id="gameProgressFill"></i></div>
     <div id="gameStepView" class="game-step-view"></div><div id="gameChatArea" class="game-chat-area"><button class="btn small" onclick="toggleGameChat()">和心伴聊聊</button></div>
@@ -436,11 +513,24 @@ function makePlayer() {
 }
 makePlayer();
 
+window.startRecommendedGame = function (id) {
+  const game = fullGameCatalog.find(item => item.id === id); if (!game) return toast('这个游戏暂时不可用，请从游戏库重新选择。');
+  window.gameSession = { task: { title: game.title, gameId: game.id, game }, privateMode: true, alias: '', steps: game.steps || makeGameSteps(game), index: 0, actions: [], chat: [], current: null, startedAt: Date.now(), stepStarted: Date.now(), completionId: crypto.randomUUID ? crypto.randomUUID() : `practice-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+  document.getElementById('playerTitle').textContent = game.title;
+  document.getElementById('playerConsent').style.display = 'none'; document.getElementById('gamePlayContent').style.display = 'block';
+  document.querySelector('#gamePlayContent .student-share-note').textContent = '这是你主动开始的私密练习。你可以跳过任何步骤；完成记录默认只保存在你的个人记录中。';
+  document.querySelector('.game-player-foot').innerHTML = '<button class="btn" onclick="skipGameStep()">跳过这步</button><button class="btn primary" id="nextGameStep" onclick="nextGameStep()">下一步 →</button>';
+  document.getElementById('gameChatArea').innerHTML = '<button class="btn small" onclick="toggleGameChat()">和心伴聊聊</button>';
+  document.getElementById('gamePlayerBack').classList.add('show'); renderGameStep();
+};
 window.startClassGame = function () {
   const task = window.currentClassTask; if (!task) return;
-  const steps = gamePlaybooks[task.title] || gamePlaybooks['压力外化卡片'];
-  window.gameSession = { task, alias: '', steps, index: 0, actions: [], chat: [], current: null, startedAt: Date.now(), stepStarted: Date.now(), completionId: crypto.randomUUID ? crypto.randomUUID() : `practice-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+  const game = task.game || games.find(item => item.id === task.gameId) || { title: task.title, steps: gamePlaybooks[task.title] || gamePlaybooks['压力外化卡片'] };
+  const steps = game.steps || gamePlaybooks[task.title] || gamePlaybooks['压力外化卡片'];
+  window.gameSession = { task: { ...task, game }, privateMode: false, alias: '', steps, index: 0, actions: [], chat: [], current: null, startedAt: Date.now(), stepStarted: Date.now(), completionId: crypto.randomUUID ? crypto.randomUUID() : `practice-${Date.now()}-${Math.random().toString(36).slice(2)}` };
   document.getElementById('playerTitle').textContent = task.title;
+  document.querySelector('#gamePlayContent .student-share-note').textContent = '课堂任务记录（含选择、文字、画作和活动对话）会在你确认参与后提交给授课老师。你可以跳过任何问题，请勿填写不想分享的个人信息。';
+  document.querySelector('.game-player-foot').innerHTML = '<button class="btn" onclick="skipGameStep()">跳过这步</button><button class="btn primary" id="nextGameStep" onclick="nextGameStep()">下一步 →</button>';
   document.getElementById('playerConsent').style.display = 'block'; document.getElementById('gamePlayContent').style.display = 'none';
   document.getElementById('gamePlayerBack').classList.add('show');
 };
@@ -464,6 +554,25 @@ function renderGameStep() {
   if (step.type === 'text') {
     const field = document.createElement('textarea'); field.className = 'game-reflection'; field.placeholder = step.placeholder || '写一点点就好……';
     field.oninput = () => { session.current.reflection = field.value; }; view.append(field);
+  } else if (step.type === 'draw') {
+    const canvas = createDrawingBoard(view, currentCanvas => { session.current.drawingData = currentCanvas.toDataURL('image/jpeg', .62); session.current.choice = '完成画布创作'; });
+    const saved = session.current.drawingData; if (saved) { const image = new Image(); image.onload = () => canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height); image.src = saved; }
+  } else if (step.type === 'turns') {
+    const turns = document.createElement('div'); turns.className = 'group-turns'; let count = 0;
+    const addTurn = () => {
+      if (count >= 8) return;
+      count += 1; const label = document.createElement('label'); label.textContent = `第 ${count} 位（可跳过）`;
+      const field = document.createElement('textarea'); field.className = 'game-reflection'; field.placeholder = '写一句故事 / 一个联想 / 小组共同答案';
+      field.oninput = () => { session.current.reflection = [...turns.querySelectorAll('textarea')].map(item => item.value.trim()).filter(Boolean).join(' / '); };
+      turns.append(label, field); if (count < 8) { const add = document.createElement('button'); add.className = 'btn small'; add.textContent = '＋下一位'; add.onclick = () => { add.remove(); addTurn(); }; turns.append(add); }
+    };
+    addTurn(); view.append(turns);
+  } else if (step.type === 'auction') {
+    const board = document.createElement('div'); board.className = 'auction-board'; const bids = new Map();
+    const total = document.createElement('b'); total.className = 'auction-total';
+    const update = () => { let spent = 0; board.querySelectorAll('.auction-option').forEach(row => { const input = row.querySelector('input'), option = row.querySelector('span').textContent; const allowed = Math.max(0, 10 - spent), amount = Math.min(allowed, Math.max(0, Number(input.value) || 0)); input.max = String(allowed); input.value = String(amount); bids.set(option, amount); spent += amount; }); total.textContent = `已分配 ${spent} / 10 枚`; session.current.choice = [...bids.entries()].filter(([, amount]) => amount > 0).map(([item, amount]) => `${item}：${amount}枚`).join('；'); };
+    (step.options || []).forEach(option => { const row = document.createElement('label'); row.className = 'auction-option'; const name = document.createElement('span'); name.textContent = option; const amount = document.createElement('input'); amount.type = 'number'; amount.min = '0'; amount.max = '10'; amount.value = '0'; amount.oninput = update; row.append(name, amount); board.append(row); });
+    board.append(total); view.append(board); update();
   } else if (step.type === 'timer') {
     const timerBox = document.createElement('div'); timerBox.className = 'breath-timer'; timerBox.innerHTML = `<div class="breath-circle">🌬️</div><p>准备好后，按下按钮开始</p><button class="btn soft">开始短练习</button>`;
     const button = timerBox.querySelector('button');
@@ -479,29 +588,40 @@ function renderGameStep() {
   }
   document.getElementById('nextGameStep').textContent = session.index === session.steps.length - 1 ? '完成并提交 ✓' : '下一步 →';
 }
-window.skipGameStep = function () { if (window.gameSession) { window.gameSession.current.skipped = true; window.gameSession.current.seconds = Math.round((Date.now() - window.gameSession.stepStarted) / 1000); window.gameSession.actions.push(window.gameSession.current); advanceGame(); } };
-window.nextGameStep = function () {
+window.skipGameStep = async function () { if (window.gameSession) { const session = window.gameSession; session.current.skipped = true; session.current.seconds = Math.round((Date.now() - session.stepStarted) / 1000); session.actions.push(session.current); if (!session.privateMode && session.index < session.steps.length - 1) await saveClassGameProgress(); if (session.index < session.steps.length - 1) advanceGame(); else submitClassGame(); } };
+window.nextGameStep = async function () {
   const session = window.gameSession; if (!session) return;
   session.current.seconds = Math.round((Date.now() - session.stepStarted) / 1000);
   session.actions.push(session.current);
+  if (!session.privateMode && session.index < session.steps.length - 1) await saveClassGameProgress();
   if (session.index < session.steps.length - 1) advanceGame(); else submitClassGame();
 };
 function advanceGame() { window.gameSession.index += 1; renderGameStep(); }
+async function saveClassGameProgress() {
+  const session = window.gameSession; if (!session || session.privateMode || !session.alias) return;
+  try {
+    const response = await fetch('/api/student/tasks/progress', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: session.task.code, completionId: session.completionId, gameId: session.task.gameId, studentAlias: session.alias, actions: session.actions, chat: session.chat, safetyEscalation: Boolean(session.safetyEscalation) }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '保存课堂进度失败');
+  } catch (error) { toast(error.message || '课堂进度暂时未保存，请保持页面打开后重试'); }
+}
 async function submitClassGame(safetyEscalation = false) {
   const session = window.gameSession; const button = document.getElementById('nextGameStep'); button.disabled = true; button.textContent = '正在提交…';
   try {
-    const response = await fetch('/api/student/tasks/submit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: session.task.code, gameId: session.task.gameId, studentAlias: session.alias, actions: session.actions, chat: session.chat, safetyEscalation }) });
+    const endpoint = session.privateMode ? '/api/student/practices/complete' : '/api/student/tasks/submit';
+    const payload = session.privateMode ? { title: session.task.title, completionId: session.completionId, actions: session.actions, chat: session.chat } : { code: session.task.code, completionId: session.completionId, gameId: session.task.gameId, studentAlias: session.alias, actions: session.actions, chat: session.chat, safetyEscalation };
+    const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '提交失败');
-    if (!safetyEscalation && !session.practiceCounted) {
+    if (!session.privateMode && !safetyEscalation && !session.practiceCounted) {
       const progressResponse = await fetch('/api/student/progress/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ completionId: session.completionId, submissionId: data.submissionId, taskCode: session.task.code, title: session.task.title }) });
       const progressData = await progressResponse.json();
       if (progressResponse.ok) { practiceProgress = progressData; session.practiceCounted = true; renderCompanion(); }
       else if (progressData.error) toast(progressData.error);
     }
-    document.getElementById('gameStepView').innerHTML = safetyEscalation ? '<div class="game-complete"><div>🤝</div><h3>活动已暂停</h3><p>课堂老师会看到需要及时查看的提示。请现在找一位信任的大人或学校心理老师陪着你；如果你或他人正处于立即危险中，请联系当地紧急服务。</p></div>' : '<div class="game-complete"><div>🌱</div><h3>活动完成，谢谢你的参与</h3><p>你的课堂活动记录已提交给老师。你可以关闭这个窗口，或回到心伴继续聊聊。</p></div>';
+    if (session.privateMode && !session.practiceCounted) { const progressResponse = await fetch('/api/student/progress'); if (progressResponse.ok) { practiceProgress = await progressResponse.json(); session.practiceCounted = true; renderCompanion(); } }
+    document.getElementById('gameStepView').innerHTML = safetyEscalation ? '<div class="game-complete"><div>🤝</div><h3>活动已暂停</h3><p>课堂老师会看到需要及时查看的提示。请现在找一位信任的大人或学校心理老师陪着你；如果你或他人正处于立即危险中，请联系当地紧急服务。</p></div>' : `<div class="game-complete"><div>🌱</div><h3>活动完成，谢谢你的参与</h3><p>${session.privateMode ? '练习记录已保存在你的个人空间。' : '你的课堂活动记录已提交给老师。'}你可以关闭这个窗口，或回到心伴继续聊聊。</p></div>`;
     document.getElementById('gameProgressFill').style.width = '100%'; document.getElementById('gameStepLabel').textContent = '已完成'; document.getElementById('gameStepCount').textContent = '✓';
     document.getElementById('gameChatArea').replaceChildren(); document.querySelector('.game-player-foot').innerHTML = '<button class="btn primary" onclick="closeGamePlayer()">完成</button>';
-    loadClassroomTasks();
+    if (!session.privateMode) loadClassroomTasks();
   } catch (error) { toast(error.message || '提交失败，请重试'); button.disabled = false; button.textContent = '重试提交'; }
 }
 window.toggleGameChat = function () {
@@ -516,11 +636,12 @@ window.sendGameChat = async function () {
   const session = window.gameSession; input.disabled = true; session.chat.push({ role: 'student', content: message });
   const submit = async () => {
     const gameConversationId = `class-${session.task.code}-${memoryStudentId}`;
-    const response = await fetch('/api/student/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, studentId: memoryStudentId, conversationId: gameConversationId, scope: 'classroom', taskCode: session.task.code, ...companionRequestContext() }) });
+    const response = await fetch('/api/student/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, studentId: memoryStudentId, conversationId: session.privateMode ? privateConversationId : gameConversationId, scope: session.privateMode ? 'private' : 'classroom', taskCode: session.privateMode ? undefined : session.task.code, activityContext: { title: session.task.title, currentStep: session.steps[session.index]?.title }, ...companionRequestContext() }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '暂时无法回复');
     session.chat.push({ role: 'assistant', content: data.reply });
     const line = document.createElement('p'); line.className = 'game-chat-reply'; line.textContent = `${companionProfile?.name || '心伴'}：${data.reply}`; document.getElementById('gameChatArea').append(line);
-    if (data.safetyEscalation) { session.safetyEscalation = true; document.querySelector('.game-player-foot').innerHTML = '<button class="btn primary" onclick="closeGamePlayer()">我会去找大人</button>'; await submitClassGame(true); }
+    if (!session.privateMode) await saveClassGameProgress();
+    if (data.safetyEscalation) { session.safetyEscalation = true; document.querySelector('.game-player-foot').innerHTML = '<button class="btn primary" onclick="closeGamePlayer()">我会去找大人</button>'; if (session.privateMode) { document.getElementById('gameStepView').innerHTML = '<div class="game-complete"><div>🤝</div><h3>我们先暂停练习</h3><p>请现在联系一位信任的大人或学校心理老师陪着你。如果你或他人正处于立即危险中，请联系当地紧急服务。</p></div>'; document.getElementById('gameChatArea').replaceChildren(); } else await submitClassGame(true); }
   };
   try { await submit(); } catch (error) { session.chat.pop(); toast(error.message || '暂时无法连接'); } finally { input.disabled = false; input.value = ''; }
 };
@@ -528,7 +649,7 @@ window.sendGameChat = async function () {
 window.publishGame = async function (index) {
   const game = games[index];
   try {
-    const response = await fetch('/api/teacher/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: game.title, gameId: `game-${index}`, className: '七年级 2 班' }) });
+    const response = await fetch('/api/teacher/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: game.title, gameId: game.id || `game-${index}`, game, className: '七年级 2 班' }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '创建课堂任务失败');
     showTaskShare(data.task); loadClassroomTasks();
   } catch (error) { toast(error.message || '操作失败，请稍后重试。'); }
@@ -536,7 +657,7 @@ window.publishGame = async function (index) {
 function showTaskShare(task) {
   document.getElementById('modalTitle').textContent = '课堂任务已创建';
   document.getElementById('planForm').style.display = 'block'; document.getElementById('planResult').style.display = 'none';
-  document.getElementById('planForm').innerHTML = `<div class="task-share"><div class="share-spark">✦</div><h3>${escapeHtml(task.title)}</h3><p>学生在学生端输入下面的课堂码，即可开始游戏。完成后，活动选择、文字和活动中的心伴对话会提交到学生记录。</p><div class="share-code">${escapeHtml(task.code)}</div><small>${escapeHtml(task.className || '')}</small><div class="modal-actions"><button class="btn" onclick="navigator.clipboard?.writeText('${task.code}').then(()=>toast('课堂码已复制')).catch(()=>toast('请手动复制课堂码'))">复制课堂码</button><button class="btn primary" onclick="closeModal()">完成</button></div></div>`;
+  document.getElementById('planForm').innerHTML = `<div class="task-share"><div class="share-spark">✦</div><h3>${escapeHtml(task.title)}</h3><p>学生在学生端输入下面的课堂码，即可开始游戏。经学生确认后，活动选择、文字、画作和活动中的心伴对话会提交到课堂记录。</p><div class="share-code">${escapeHtml(task.code)}</div><small>${escapeHtml(task.className || '')}</small><div class="modal-actions"><button class="btn" onclick="navigator.clipboard?.writeText('${task.code}').then(()=>toast('课堂码已复制')).catch(()=>toast('请手动复制课堂码'))">复制课堂码</button><button class="btn primary" onclick="closeModal()">完成</button></div></div>`;
   document.querySelector('.modal').classList.add('agent-modal'); document.getElementById('modalback').classList.add('show');
 }
 
@@ -558,9 +679,18 @@ window.loadClassroomTasks = async function () {
       const meta = document.createElement('div'); meta.className = 'course-meta'; const title = document.createElement('b'); title.textContent = task.title; const small = document.createElement('small'); small.textContent = `${task.className} · 课堂码 ${task.code} · ${task.submissionCount} 份记录`; meta.append(title, small);
       const code = document.createElement('span'); code.className = 'pill'; code.textContent = task.code;
       const view = document.createElement('button'); view.className = 'btn small'; view.textContent = '查看记录'; view.onclick = () => viewTaskRecords(task.code);
-      row.append(icon, meta, code, view); list.append(row);
+      const tune = document.createElement('button'); tune.className = 'btn small'; tune.textContent = '按反馈改游戏'; tune.disabled = !task.submissionCount || !task.game; tune.title = tune.disabled ? '需要有学生提交记录，且任务包含游戏步骤' : '使用匿名汇总数据微调游戏'; tune.onclick = () => tuneTaskFromUsage(task.code);
+      row.append(icon, meta, code, view, tune); list.append(row);
     });
   } catch (error) { list.textContent = error.message || '读取课堂任务失败'; }
+};
+window.tuneTaskFromUsage = async function (code, studentId = null) {
+  try {
+    const query = studentId ? `?studentId=${encodeURIComponent(studentId)}` : '';
+    const response = await fetch(`/api/teacher/tasks/${encodeURIComponent(code)}/insights${query}`), data = await response.json(); if (!response.ok) throw new Error(data.error || '读取课堂汇总失败');
+    if (!data.task.game?.steps?.length) throw new Error('这份课堂任务没有可编辑的游戏步骤。');
+    window.editGame(null, data.task.game, null, data.summary);
+  } catch (error) { toast(error.message || '暂时无法载入课堂反馈'); }
 };
 window.viewTaskRecords = async function (code) {
   try {
@@ -571,8 +701,9 @@ window.viewTaskRecords = async function (code) {
     data.submissions.forEach(submission => {
       const article = document.createElement('article'); article.className = 'submission-card';
       const title = document.createElement('b'); title.textContent = `${submission.studentAlias} · ${new Date(submission.submittedAt).toLocaleString()}`; article.append(title);
+      const tune = document.createElement('button'); tune.className = 'btn small'; tune.textContent = '按该生参与情况改编'; tune.style.marginLeft = '10px'; tune.onclick = () => { closeModal(); tuneTaskFromUsage(code, submission.studentId); }; article.append(tune);
       if (submission.safetyEscalation) { const flag = document.createElement('span'); flag.className = 'pill red'; flag.textContent = '需要及时查看'; article.append(flag); }
-      submission.actions.forEach(action => { const p = document.createElement('p'); p.textContent = `${action.step}${action.skipped ? '（跳过）' : ''}${action.choice ? ` · 选择：${action.choice}` : ''}${action.reflection ? ` · 分享：${action.reflection}` : ''}`; article.append(p); });
+      submission.actions.forEach(action => { const p = document.createElement('p'); p.textContent = `${action.step}${action.skipped ? '（跳过）' : ''}${action.choice ? ` · 选择：${action.choice}` : ''}${action.reflection ? ` · 分享：${action.reflection}` : ''}`; article.append(p); if (action.drawingData) { const image = document.createElement('img'); image.src = action.drawingData; image.alt = `${action.step}学生作品`; image.className = 'submitted-game-drawing'; article.append(image); } });
       if (submission.chat.length) { const label = document.createElement('small'); label.textContent = '活动中的心伴对话'; article.append(label); submission.chat.forEach(item => { const p = document.createElement('p'); p.textContent = `${item.role === 'assistant' ? '棉棉' : submission.studentAlias}：${item.content}`; article.append(p); }); }
       form.append(article);
     });
@@ -587,6 +718,9 @@ window.setView = function (id) { baseSetView(id); if (id === 'records') loadClas
 const gameStyle = document.createElement('style');
 gameStyle.textContent = `.game-action-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:13px}.game-action-row>span{font-size:10px;color:#9aa49e;margin-right:auto}.class-join-panel{display:flex;align-items:center;gap:11px;padding:12px 15px;background:#f3f7f2;border-bottom:1px solid var(--line);flex:none}.class-join-icon{width:34px;height:34px;border-radius:10px;background:#fff;color:#39715e;display:grid;place-items:center;font-size:19px}.class-join-content{flex:1;min-width:0}.class-join-content>b{font-size:12px}.class-join-content>small{display:block;color:#87938c;font-size:10px;margin-top:3px}.class-join-controls{display:flex;gap:6px;margin-top:7px}.class-join-controls input{width:135px;border:1px solid #e1e9e1;border-radius:7px;padding:7px 9px;text-transform:uppercase;font-size:11px}.joined-task{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px}.joined-task b{font-size:11px}.joined-task small{display:block;font-size:10px;color:#85918a;margin-top:3px}.game-player-back{display:none;position:fixed;inset:0;z-index:50;background:#20342e75;align-items:center;justify-content:center;padding:16px}.game-player-back.show{display:flex}.game-player{width:min(720px,100%);height:min(88vh,760px);background:white;border-radius:18px;box-shadow:0 18px 70px #142c2040;padding:24px;display:flex;flex-direction:column;overflow:auto}.game-player-head{display:flex;justify-content:space-between;align-items:center}.game-player-head h2{margin:5px 0 14px;font-size:21px}.student-share-note{background:#f8f4e9;color:#8d7443;border-radius:9px;padding:10px 12px;font-size:10px;line-height:1.7}.game-progress-head{display:flex;justify-content:space-between;color:#789087;font-size:11px;margin-top:20px}.game-progress{height:6px;background:#edf1ed;border-radius:9px;margin:8px 0 20px;overflow:hidden}.game-progress i{display:block;height:100%;background:#77ae8e;border-radius:9px;transition:width .25s}.game-step-view{flex:1;min-height:190px}.game-step-prompt{font-size:15px;line-height:1.75;color:#394a42;margin:0 0 18px;white-space:pre-wrap}.game-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.game-choice{background:#fbfcfa;border:1px solid #e5ebe5;border-radius:10px;padding:12px;text-align:left;font-size:12px}.game-choice:hover,.game-choice.selected{background:#edf6f0;border-color:#82b399;color:#326c5d}.game-reflection{width:100%;min-height:105px;border:1px solid #e3eae3;border-radius:10px;padding:12px;resize:vertical}.breath-timer{text-align:center;padding:5px}.breath-circle{width:86px;height:86px;border-radius:50%;display:grid;place-items:center;margin:0 auto 10px;background:#eef6ef;font-size:30px;animation:breathe 5s ease-in-out infinite alternate}.breath-timer p{color:#708278;font-size:12px}@keyframes breathe{to{transform:scale(1.17);background:#deeee2}}.game-player-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid #eef1ee;padding-top:13px}.game-chat-area{margin:8px 0}.game-chat-form{display:flex;gap:7px;margin-top:7px}.game-chat-form input{flex:1;min-width:0;border:1px solid #e3e9e3;border-radius:8px;padding:8px;font-size:11px}.game-chat-reply{font-size:11px;background:#f2f6f1;padding:9px;border-radius:9px;line-height:1.6;white-space:pre-wrap}.game-complete{text-align:center;padding:24px}.game-complete>div{font-size:46px}.game-complete h3{font-size:17px}.game-complete p{font-size:12px;color:#7d8982;line-height:1.7}.task-manager-row{margin-top:9px}.submission-card{border:1px solid var(--line);padding:13px;border-radius:10px;margin:10px 0;font-size:11px;line-height:1.6}.submission-card b{font-size:12px}.submission-card p{margin:6px 0;color:#65736b;white-space:pre-wrap}.submission-card small{color:#718c7c;font-weight:600}@media(max-width:600px){.game-player{padding:17px}.game-choice-grid{grid-template-columns:1fr}.game-action-row>span{width:100%}.game-action-row .btn{flex:1}}`;
 document.head.append(gameStyle);
+const expandedGameStyle = document.createElement('style');
+expandedGameStyle.textContent = `.recommended-game-card{margin-top:12px;padding:12px;background:#fff;border:1px solid #dfe9e1;border-radius:12px}.recommended-game-card b{font-size:12px}.recommended-game-card p{font-size:11px;line-height:1.6;color:#718078;margin:6px 0 10px}.game-search{min-width:240px;flex:1;border:1px solid var(--line);border-radius:9px;padding:9px 12px}.game[hidden]{display:none}.game-risk{display:block;margin-top:8px;color:#8b968f;font-size:10px}.game-action-row{justify-content:flex-start}.drawing-board{width:100%;margin:12px 0}.drawing-board canvas{display:block;width:100%;height:clamp(210px,35vh,360px);background:#fff;border:1px solid #dfe8df;border-radius:12px;touch-action:none;cursor:crosshair}.drawing-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}.draw-color{width:24px;height:24px;border:2px solid white;box-shadow:0 0 0 1px #dce5dd;border-radius:50%}.draw-color.active{box-shadow:0 0 0 2px #326c5d}.drawing-tools .btn{margin-left:auto}.drawing-tools .btn+.btn{margin-left:0}.auction-board{display:grid;gap:8px}.auction-option{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8faf8;border-radius:9px;font-size:12px}.auction-option input{width:76px;padding:7px;border:1px solid #dfe8df;border-radius:7px}.auction-total{display:block;text-align:right;color:#326c5d;font-size:12px;padding-top:5px}.group-turns label{display:block;margin:8px 0 5px;color:#607269;font-size:11px}.group-turns .btn{margin:8px 0}.submitted-game-drawing{display:block;max-width:min(100%,500px);max-height:350px;object-fit:contain;border:1px solid #e3eae3;border-radius:10px;margin:6px 0 12px;background:#fff}@media(max-width:600px){.game-search{min-width:100%}.recommended-game-card{padding:10px}.drawing-board canvas{height:250px}}`;
+document.head.append(expandedGameStyle);
 const consentStyle = document.createElement('style');
 consentStyle.textContent = `.joined-task .alias-input{display:block;width:140px;margin-top:5px;border:1px solid #e1e9e1;border-radius:7px;padding:6px 8px;font-size:10px}.player-consent{display:flex;flex-direction:column;gap:15px;max-width:520px;margin:25px auto}.consent-check{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.6;color:#596b61}.consent-check input{margin:2px 0 0}`;
 document.head.append(consentStyle);

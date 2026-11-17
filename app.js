@@ -3,7 +3,9 @@ let conversationHistory = [];
 let sendingStudentMessage = false;
 let teacherHistory = [];
 let teacherSending = false;
-const animalOptions = { abstract: '抽象小动物', cat: '小猫', rabbit: '小兔', fox: '小狐狸', bear: '小熊', dog: '小狗' };
+let activeUserRole = null;
+let practiceProgress = { completed: 0, nextAccessory: 5, nextOutfit: 20 };
+const animalOptions = { abstract: '心伴芽', cat: '芽芽猫', rabbit: '芽芽兔', fox: '芽芽狐', bear: '芽芽熊', dog: '芽芽狗' };
 let profileKey = 'default';
 let companionAnimal = localStorage.getItem(`xinban.companion.animal.${profileKey}`) || 'abstract';
 let companionProfile = null;
@@ -181,25 +183,96 @@ function companionFace(animal = companionAnimal) {
 }
 function renderCompanion() {
   const pet = document.getElementById('pet'); if (!pet) return;
-  if (companionAnimal === 'abstract') {
-    const palette = dailyAppearance?.palette || '#cfe7d9', accent = dailyAppearance?.accent || '#efcf8a';
-    pet.innerHTML = `<svg class="abstract-pet" viewBox="0 0 100 100" role="img" aria-label="抽象小动物心伴"><path d="M27 37C18 13 34 12 43 31c8-14 25-18 28-4l-2 13c14 8 19 25 10 38-13 18-49 18-61-1-10-15-5-31 9-40z" fill="${palette}" stroke="#6d9a80" stroke-width="3"/><ellipse cx="40" cy="53" rx="3" ry="4" fill="#365b4b"/><ellipse cx="62" cy="53" rx="3" ry="4" fill="#365b4b"/><path d="M47 64q4 4 8 0" fill="none" stroke="#6d806f" stroke-width="2" stroke-linecap="round"/><circle cx="29" cy="67" r="4" fill="${accent}"/><circle cx="72" cy="67" r="4" fill="${accent}"/><path d="M50 10l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" fill="${accent}"/></svg>`;
-  } else { pet.innerHTML = `<span class="animal-orb" style="background:${dailyAppearance?.palette || '#e9f2e9'}">${companionFace()}<i>${dailyAppearance?.accessory || '🌿'}</i></span>`; }
-  const name = '心伴';
+  const palette = dailyAppearance?.palette || '#dceee2', accent = dailyAppearance?.accent || '#efcf8a';
+  const ears = {
+    abstract: '<path d="M29 39C15 13 35 12 44 34M57 34C67 9 88 17 72 43"/>',
+    cat: '<path d="M28 43 24 17Q25 13 30 17L45 32M57 32 73 17Q78 14 77 21L73 44"/>',
+    rabbit: '<path d="M37 38C25 11 32 3 40 7Q49 11 47 35M56 35Q52 10 62 6Q74 7 67 40"/>',
+    fox: '<path d="M29 42 22 15 45 31M57 31 80 15 73 43"/>',
+    bear: '<path d="M29 35C16 23 19 12 30 13Q40 13 43 32M57 32Q60 13 72 13Q84 23 71 36"/>',
+    dog: '<path d="M31 34Q12 18 19 45L35 48M65 34Q84 18 81 45L65 48"/>'
+  }[companionAnimal] || '';
+  const outfitValue = localStorage.getItem(`xinban.outfit.${profileKey}`), selectedOutfit = outfitValue === null ? -1 : Number(outfitValue);
+  const wornOutfit = Number.isInteger(selectedOutfit) && selectedOutfit >= 0 && selectedOutfit < outfitCollection.length && practiceProgress.completed >= (selectedOutfit + 1) * 20 ? outfitCollection[selectedOutfit] : null;
+  const accessoryValue = localStorage.getItem(`xinban.accessory.${profileKey}`), selectedAccessory = accessoryValue === null ? -1 : Number(accessoryValue);
+  const wornAccessory = Number.isInteger(selectedAccessory) && selectedAccessory >= 0 && selectedAccessory < accessoryCollection.length && practiceProgress.completed >= (selectedAccessory + 1) * 5 ? accessoryCollection[selectedAccessory] : null;
+  pet.innerHTML = `<svg class="heart-sprout" viewBox="0 0 120 126" role="img" aria-label="${animalOptions[companionAnimal] || '心伴芽'}"><g fill="${palette}" stroke="#638f76" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${ears}<path d="M29 42Q28 36 35 36H69Q79 37 80 47L84 69Q84 96 58 101Q31 100 27 77Z"/><path d="M42 36Q40 25 48 20Q56 25 53 36" fill="#a6cf9e"/><path d="M51 25Q61 12 72 19Q66 30 54 31" fill="#bddba9"/></g><g fill="#315745"><ellipse cx="43" cy="62" rx="3" ry="4"/><ellipse cx="65" cy="62" rx="3" ry="4"/></g><path d="M50 72q4 5 8 0" fill="none" stroke="#63806e" stroke-width="2.5" stroke-linecap="round"/><circle cx="34" cy="72" r="4" fill="${accent}" opacity=".8"/><circle cx="74" cy="72" r="4" fill="${accent}" opacity=".8"/><path d="M31 87Q55 75 79 87L76 101Q56 113 36 101Z" fill="${wornOutfit?.color || '#f3dfb1'}" stroke="#638f76" stroke-width="2"/><text x="55" y="98" text-anchor="middle" font-size="13">${wornOutfit?.icon || '✦'}</text><text x="83" y="45" text-anchor="middle" font-size="16">${wornAccessory?.icon || dailyAppearance?.accessory || ''}</text></svg>`;
+  const name = '心伴芽';
   document.getElementById('petName').textContent = name;
   const mini = document.querySelector('.chat-head .petmini'); if (mini) mini.textContent = companionFace();
   const title = document.querySelector('.chat-head b'); if (title) title.textContent = `和${name}聊聊`;
   document.querySelectorAll('#messages .tiny').forEach(node => { node.textContent = companionFace(); });
-  const desc = document.getElementById('companionDescription'); if (desc) desc.textContent = '心伴会根据你聊过的兴趣和做过的小练习，每天悄悄换一点装饰。心情好坏不会改变它的样子。';
+  const desc = document.getElementById('companionDescription'); if (desc) desc.textContent = '每完成 5 次心理练习，可以选择一件新装扮；完成 20 次可解锁成长服装。外观不会根据心情好坏变化。';
+  renderCompanionProgress();
 }
 function ensureCompanionSetup() {
   const tabs = document.querySelector('.pet-card .pet-tabs'); if (!tabs || document.getElementById('companionSetup')) return;
   const panel = document.createElement('div'); panel.id = 'companionSetup'; panel.className = 'companion-setup';
-  panel.innerHTML = `<label for="companionAnimal">选择心伴形象</label><select id="companionAnimal"><option value="abstract">抽象小动物（默认）</option><option value="cat">小猫</option><option value="rabbit">小兔</option><option value="fox">小狐狸</option><option value="bear">小熊</option><option value="dog">小狗</option></select><div id="companionDescription"></div>`;
+  panel.innerHTML = `<label for="companionAnimal">选择心伴芽的形象</label><select id="companionAnimal"><option value="abstract">心伴芽（默认）</option><option value="cat">芽芽猫</option><option value="rabbit">芽芽兔</option><option value="fox">芽芽狐</option><option value="bear">芽芽熊</option><option value="dog">芽芽狗</option></select><div id="companionDescription"></div>`;
   tabs.before(panel);
   const picker = document.getElementById('companionAnimal'); picker.value = companionAnimal;
   picker.onchange = () => { companionAnimal = picker.value; localStorage.setItem(`xinban.companion.animal.${profileKey}`, companionAnimal); dailyAppearance = null; renderCompanion(); refreshDailyAppearance(); };
+  const tabsButtons = tabs.querySelectorAll('button');
+  if (tabsButtons[0]) tabsButtons[0].textContent = '装扮';
+  if (tabsButtons[1]) tabsButtons[1].textContent = '成长记录';
+  const itemIcons = document.querySelectorAll('.pet-items span');
+  ['✨', '🌿', '🎀'].forEach((icon, index) => { if (itemIcons[index]) itemIcons[index].textContent = icon; });
+  const intro = document.querySelector('#studentApp .pet-card > p');
+  if (intro) intro.innerHTML = '我会陪你慢慢探索。<br>每一次尝试都值得被记住。';
   renderCompanion();
+}
+const accessoryCollection = [
+  { name: '小叶发夹', icon: '🍃', color: '#b9d9a8' }, { name: '星星徽章', icon: '⭐', color: '#f1d38c' },
+  { name: '软软围巾', icon: '🧣', color: '#e8b7aa' }, { name: '云朵发卡', icon: '☁️', color: '#bfd5ea' },
+  { name: '小花胸针', icon: '🌼', color: '#e8c4dc' }
+];
+const outfitCollection = [
+  { name: '春日园丁服', icon: '🌱', color: '#c8dfb7' }, { name: '星光探险服', icon: '✨', color: '#c8c1e7' },
+  { name: '海风散步服', icon: '🐚', color: '#b9dce1' }, { name: '暖阳针织服', icon: '☀️', color: '#f1d4a1' },
+  { name: '晚霞旅行服', icon: '🌸', color: '#edc0b8' }
+];
+function renderCompanionProgress() {
+  const count = practiceProgress.completed || 0, remainder = count % 5;
+  const progress = document.getElementById('companionProgress'); if (!progress) return;
+  progress.innerHTML = `<div class="growth-count">🌱 已完成 <b>${count}</b> 次练习</div><div class="growth-track"><i style="width:${Math.min(100, remainder * 20)}%"></i></div><small>${count >= 20 ? '已解锁成长服装！' : `再完成 ${20 - count} 次，解锁成长服装`}</small>`;
+}
+function openCompanionCollection(kind) {
+  const isOutfit = kind === 'outfits';
+  const items = isOutfit ? outfitCollection : accessoryCollection;
+  const count = practiceProgress.completed || 0;
+  const modal = document.getElementById('companionModal');
+  document.getElementById('companionModalTitle').textContent = isOutfit ? '成长记录 · 五套成长服装' : '装扮小屋 · 五件心意饰品';
+  document.getElementById('companionModalIntro').textContent = isOutfit ? `完成 20 次心理练习解锁第 1 套服装；之后每 20 次解锁一套。当前 ${count} 次。` : `每完成 5 次心理练习，解锁一件饰品，可选择佩戴。当前 ${count} 次。`;
+  modal.querySelector('.close').textContent = '×';
+  document.getElementById('companionCollection').innerHTML = items.map((item, index) => {
+    const need = isOutfit ? (index + 1) * 20 : (index + 1) * 5;
+    const unlocked = count >= need;
+    const selected = (isOutfit ? localStorage.getItem(`xinban.outfit.${profileKey}`) : localStorage.getItem(`xinban.accessory.${profileKey}`)) === String(index);
+    return `<button class="collection-item ${unlocked ? 'unlocked' : 'locked'} ${selected ? 'selected' : ''}" ${unlocked ? `onclick="selectCompanionItem('${kind}',${index})"` : 'disabled'}><span class="collection-art" style="--item-color:${item.color}">${item.icon}</span><b>${item.name}</b><small>${unlocked ? (selected ? '正在使用' : '已解锁 · 点击穿戴') : `进度 ${Math.min(count, need)} / ${need}`}</small><span class="collection-status">${unlocked ? '✓ 已获得' : '🔒 未解锁'}</span></button>`;
+  }).join('');
+  const history = document.getElementById('practiceHistory');
+  history.replaceChildren();
+  if (isOutfit) {
+    const heading = document.createElement('h3'); heading.textContent = '我的练习足迹'; history.append(heading);
+    const records = (practiceProgress.recentPractices || []).slice().reverse().slice(0, 10);
+    if (!records.length) { const empty = document.createElement('p'); empty.textContent = '完成课堂心理游戏后，这里会留下你的成长足迹。'; history.append(empty); }
+    records.forEach(record => {
+      const row = document.createElement('div'); row.className = 'practice-history-row';
+      const title = document.createElement('b'); title.textContent = record.title || '心理练习';
+      const date = document.createElement('small'); date.textContent = record.completedAt ? new Date(record.completedAt).toLocaleDateString('zh-CN') : '';
+      row.append(title, date); history.append(row);
+    });
+  }
+  modal.classList.add('show');
+}
+window.openCompanionCollection = openCompanionCollection;
+window.closeCompanionCollection = () => document.getElementById('companionModal')?.classList.remove('show');
+window.selectCompanionItem = function (kind, index) {
+  localStorage.setItem(`xinban.${kind === 'outfits' ? 'outfit' : 'accessory'}.${profileKey}`, String(index));
+  renderCompanion(); openCompanionCollection(kind); toast('已为心伴芽换上新装扮');
+};
+async function loadPracticeProgress() {
+  try { const response = await fetch('/api/student/progress'); if (!response.ok) return; practiceProgress = await response.json(); renderCompanionProgress(); renderCompanion(); } catch {}
 }
 ensureCompanionSetup();
 async function refreshDailyAppearance() {
@@ -248,7 +321,7 @@ makePlayer();
 window.startClassGame = function () {
   const task = window.currentClassTask; if (!task) return;
   const steps = gamePlaybooks[task.title] || gamePlaybooks['压力外化卡片'];
-  window.gameSession = { task, alias: '', steps, index: 0, actions: [], chat: [], current: null, startedAt: Date.now(), stepStarted: Date.now() };
+  window.gameSession = { task, alias: '', steps, index: 0, actions: [], chat: [], current: null, startedAt: Date.now(), stepStarted: Date.now(), completionId: crypto.randomUUID ? crypto.randomUUID() : `practice-${Date.now()}-${Math.random().toString(36).slice(2)}` };
   document.getElementById('playerTitle').textContent = task.title;
   document.getElementById('playerConsent').style.display = 'block'; document.getElementById('gamePlayContent').style.display = 'none';
   document.getElementById('gamePlayerBack').classList.add('show');
@@ -301,6 +374,12 @@ async function submitClassGame(safetyEscalation = false) {
   try {
     const response = await fetch('/api/student/tasks/submit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: session.task.code, gameId: session.task.gameId, studentAlias: session.alias, actions: session.actions, chat: session.chat, safetyEscalation }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '提交失败');
+    if (!safetyEscalation && !session.practiceCounted) {
+      const progressResponse = await fetch('/api/student/progress/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ completionId: session.completionId, submissionId: data.submissionId, taskCode: session.task.code, title: session.task.title }) });
+      const progressData = await progressResponse.json();
+      if (progressResponse.ok) { practiceProgress = progressData; session.practiceCounted = true; renderCompanion(); }
+      else if (progressData.error) toast(progressData.error);
+    }
     document.getElementById('gameStepView').innerHTML = safetyEscalation ? '<div class="game-complete"><div>🤝</div><h3>活动已暂停</h3><p>课堂老师会看到需要及时查看的提示。请现在找一位信任的大人或学校心理老师陪着你；如果你或他人正处于立即危险中，请联系当地紧急服务。</p></div>' : '<div class="game-complete"><div>🌱</div><h3>活动完成，谢谢你的参与</h3><p>你的课堂活动记录已提交给老师。你可以关闭这个窗口，或回到心伴继续聊聊。</p></div>';
     document.getElementById('gameProgressFill').style.width = '100%'; document.getElementById('gameStepLabel').textContent = '已完成'; document.getElementById('gameStepCount').textContent = '✓';
     document.getElementById('gameChatArea').replaceChildren(); document.querySelector('.game-player-foot').innerHTML = '<button class="btn primary" onclick="closeGamePlayer()">完成</button>';
@@ -435,9 +514,13 @@ installStudentTextarea();
 const loginStyle = document.createElement('style');
 loginStyle.textContent = `.chat-input{align-items:flex-end}.chat-input textarea{flex:1;min-width:0;min-height:82px;max-height:150px;resize:vertical;border:1px solid var(--line);border-radius:12px;padding:13px;outline:none;font:inherit;font-size:14px;line-height:1.6}.chat-input textarea:focus{border-color:#9cbeab;box-shadow:0 0 0 3px #326c5d12}.chat-input button{height:46px;flex:none}.animal-orb{width:104px;height:104px;margin:12px auto;border-radius:38% 45% 42% 47%;display:grid;place-items:center;position:relative;font-size:62px;box-shadow:inset 0 -7px 14px #496d5010}.animal-orb i{position:absolute;right:5px;bottom:4px;font-size:25px;font-style:normal}.login-overlay{position:fixed;inset:0;z-index:100;background:linear-gradient(145deg,#eaf3eeed,#f6f7f1f2);display:grid;place-items:center;padding:18px}.login-card{width:min(480px,100%);background:#fff;border:1px solid #e6ede7;border-radius:22px;padding:32px;box-shadow:0 22px 90px #25433320}.login-brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}.login-brand .brandmark{width:44px;height:44px}.login-card h1{font-size:24px;margin:0 0 8px}.login-card p{font-size:12px;color:#77857f;line-height:1.8;margin:0 0 20px}.login-roles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}.login-role{border:1px solid #e6ece6;border-radius:12px;padding:16px;background:#fff;text-align:left}.login-role.selected{border-color:#79a98d;background:#f1f7f2;color:#326c5d}.login-role b{display:block;font-size:14px;margin-bottom:5px}.login-role small{color:#86928b;font-size:10px}.login-mode{display:flex;gap:6px;padding:4px;background:#f4f7f3;border-radius:9px;margin:0 0 16px}.login-mode button{flex:1;padding:9px;background:transparent;border-radius:7px;color:#75837a;font-size:11px}.login-mode button.selected{background:white;color:#326c5d;font-weight:600;box-shadow:0 1px 4px #1b382414}.login-card label{display:block;color:#64746b;font-size:11px}.login-card input{width:100%;padding:12px;border:1px solid #e3eae3;border-radius:9px;margin:7px 0 14px}.login-card .login-enter{width:100%;padding:12px}.login-demo{margin-top:14px;padding:10px 12px;border-radius:9px;background:#faf6ec;color:#8a754c;font-size:10px;line-height:1.7}.login-safety{margin-top:14px;font-size:10px!important;text-align:center}.topright .logout{font-size:10px;padding:7px 9px}@media(max-width:520px){.login-card{padding:24px 20px}.chat-input{padding:10px}.chat-input textarea{min-height:72px}}`;
 document.head.append(loginStyle);
+const studentExperienceStyle = document.createElement('style');
+studentExperienceStyle.textContent = `.student-layout{width:min(1480px,100%);grid-template-columns:250px minmax(0,1fr);gap:28px;padding-top:22px}.student-layout .chatbox{height:calc(100vh - 145px);min-height:540px;max-height:1000px}.student-layout .messages .bubble{max-width:82%;font-size:14px}.student-layout .chat-input textarea{min-height:110px;font-size:15px}.heart-sprout{display:block;width:138px;height:145px;margin:6px auto 10px;overflow:visible;filter:drop-shadow(0 5px 3px #486d5010)}.companion-progress{margin:10px 0 15px;text-align:left}.growth-count{font-size:11px;color:#607269}.growth-count b{font-size:15px;color:#326c5d}.growth-track{height:6px;margin:7px 0 5px;background:#fff;border-radius:99px;overflow:hidden}.growth-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#88b997,#eac985);transition:width .3s}.companion-progress small{font-size:9px;color:#88968d}.companion-modal{width:min(760px,100%)}.collection-intro{font-size:11px;color:#77857f;margin:6px 0 0}.companion-collection{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px}.collection-item{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:0;padding:13px 8px;border:1px solid #e7ece7;border-radius:13px;background:#fff;text-align:center}.collection-item.unlocked{cursor:pointer}.collection-item.selected{border-color:#78a98b;background:#f2f7f1}.collection-item.locked{opacity:.58}.collection-art{display:grid;place-items:center;width:58px;height:58px;border-radius:18px;background:var(--item-color);font-size:29px}.collection-item b{font-size:11px}.collection-item small{font-size:9px;color:#77857f;line-height:1.4}.collection-status{font-size:9px;color:#658a70}.collection-item.locked .collection-status{color:#a18b61}.practice-history{margin-top:20px;border-top:1px solid #e9eee9;padding-top:12px}.practice-history h3{font-size:12px;margin:0 0 8px}.practice-history>p{font-size:10px;color:#87938c}.practice-history-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #f0f2ef;font-size:10px}.practice-history-row small{color:#87938c;white-space:nowrap}@media(max-width:850px){.student-layout{width:100%;grid-template-columns:1fr;padding:16px;gap:14px}.student-layout .pet-card{display:block;padding:12px}.student-layout .heart-sprout{width:92px;height:96px;margin:0 auto}.student-layout .pet-items{margin:7px}.student-layout .pet-card p{margin:4px}.student-layout .companion-setup{max-width:420px;margin:7px auto}.student-layout .pet-tabs{margin:7px 0}.student-layout .chatbox{height:calc(100vh - 315px);min-height:460px}.companion-collection{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.student-layout{padding:10px}.student-layout .pet-card .eyebrow,.student-layout .pet-card p,.student-layout .pet-items{display:none}.student-layout .pet-card{display:grid;grid-template-columns:74px 1fr;align-items:center;text-align:left;column-gap:10px}.student-layout .heart-sprout{grid-row:span 3;width:72px;height:75px}.student-layout .pet-card h3{margin:0}.student-layout .companion-setup{grid-column:2;margin:3px 0;padding:6px}.student-layout .companion-setup label,.student-layout .companion-setup #companionDescription{display:none}.student-layout .companion-setup select{margin:0;padding:5px}.student-layout .pet-tabs{grid-column:2;justify-content:flex-start;margin:3px 0}.student-layout .companion-progress{grid-column:1/-1;width:100%;margin:0}.student-layout .chatbox{height:calc(100vh - 260px);min-height:380px}.student-layout .messages{padding:12px}.student-layout .messages .bubble{max-width:88%;font-size:13px}.student-layout .chat-input textarea{min-height:76px}.companion-modal{padding:16px}.collection-item{padding:10px 5px}}`;
+document.head.append(studentExperienceStyle);
 function accountHash(value) { let hash = 2166136261; for (const char of value) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(36); }
 function applyAuthenticatedUser(user) {
   const role = user.role, displayName = user.displayName || (role === 'teacher' ? '老师' : '同学');
+  activeUserRole = role;
   profileKey = `${role}-${accountHash(user.id)}`;
   const roleButton = document.querySelector(`[data-role="${role}"]`); if (roleButton) roleButton.click();
   document.querySelector('.user span').textContent = displayName;
@@ -448,18 +531,24 @@ function applyAuthenticatedUser(user) {
   try { dailyAppearance = JSON.parse(localStorage.getItem(`xinban.companion.appearance.${profileKey}`) || 'null'); } catch { dailyAppearance = null; }
   const picker = document.getElementById('companionAnimal'); if (picker) picker.value = companionAnimal;
   renderCompanion();
-  if (role === 'student') { restorePrivateConversation().then(refreshDailyAppearance); }
+  if (role === 'student') { restorePrivateConversation().then(refreshDailyAppearance); loadPracticeProgress(); }
   document.getElementById('loginOverlay')?.remove();
 }
-function showLogin() {
-  if (document.getElementById('loginOverlay')) return;
+function showLogin(initialRole = activeUserRole || 'teacher') {
+  const existingOverlay = document.getElementById('loginOverlay');
+  if (existingOverlay) {
+    const target = existingOverlay.querySelector(`[data-login-role="${initialRole}"]`);
+    if (target) target.click();
+    return;
+  }
   const overlay = document.createElement('div'); overlay.id = 'loginOverlay'; overlay.className = 'login-overlay';
   overlay.innerHTML = `<section class="login-card"><div class="login-brand"><div class="brandmark">✿</div><div><b>心伴</b><small style="display:block;color:#9aa59f;font-size:9px;letter-spacing:1px;margin-top:3px">MINDFUL LEARNING SPACE</small></div></div><h1>欢迎来到心伴</h1><p>教师与学生使用各自独立的账号。请选择身份，再登录或注册。</p><div class="login-roles"><button class="login-role selected" data-login-role="teacher"><b>教师</b><small>备课工作台与课堂管理</small></button><button class="login-role" data-login-role="student"><b>学生</b><small>聊天、练习与心伴小动物</small></button></div><div class="login-mode"><button class="selected" data-mode="login">登录</button><button data-mode="register">注册新账号</button></div><div id="registerNameWrap" style="display:none"><label for="loginName">显示名称</label><input id="loginName" maxlength="24" placeholder="例如：林老师 / 小树同学"></div><div id="teacherInviteWrap" style="display:none"><label for="teacherInvite">教师邀请码</label><input id="teacherInvite" maxlength="100" autocomplete="off" placeholder="向平台管理员获取"></div><label for="loginAccount">账号</label><input id="loginAccount" maxlength="48" autocomplete="username" placeholder="3–48 位字母、数字或 . _ @ -"><label for="loginPassword">密码</label><input id="loginPassword" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="至少 8 位"><button id="loginEnter" class="btn primary login-enter">登录并进入教师端</button><div class="login-demo">密码通过 scrypt 哈希保存；登录状态由 HttpOnly Cookie 维持。教师注册需管理员邀请码；请勿复用个人常用密码。</div><p class="login-safety">本平台为心理教育练习工具，不替代专业心理诊疗。如有严重心理困扰，请联系学校心理老师或专业医疗机构。</p></section>`;
   document.body.append(overlay);
-  let selectedRole = 'teacher';
+  let selectedRole = initialRole;
   let mode = 'login';
   const updateSubmitLabel = () => { document.getElementById('loginEnter').textContent = mode === 'register' ? '注册并进入' : `登录并进入${selectedRole === 'teacher' ? '教师端' : '学生端'}`; document.getElementById('teacherInviteWrap').style.display = mode === 'register' && selectedRole === 'teacher' ? 'block' : 'none'; };
-  overlay.querySelectorAll('[data-login-role]').forEach(button => button.onclick = () => { selectedRole = button.dataset.loginRole; overlay.querySelectorAll('[data-login-role]').forEach(item => item.classList.toggle('selected', item === button)); document.getElementById('loginName').placeholder = selectedRole === 'teacher' ? '例如：林老师' : '例如：小树同学'; updateSubmitLabel(); });
+  const selectRole = role => { selectedRole = role; overlay.querySelectorAll('[data-login-role]').forEach(item => item.classList.toggle('selected', item.dataset.loginRole === role)); document.getElementById('loginName').placeholder = selectedRole === 'teacher' ? '例如：林老师' : '例如：小树同学'; updateSubmitLabel(); };
+  overlay.querySelectorAll('[data-login-role]').forEach(button => button.onclick = () => selectRole(button.dataset.loginRole));
   overlay.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => { mode = button.dataset.mode; overlay.querySelectorAll('[data-mode]').forEach(item => item.classList.toggle('selected', item === button)); document.getElementById('registerNameWrap').style.display = mode === 'register' ? 'block' : 'none'; document.getElementById('loginPassword').autocomplete = mode === 'register' ? 'new-password' : 'current-password'; updateSubmitLabel(); });
   document.getElementById('loginEnter').onclick = async () => {
     const username = document.getElementById('loginAccount').value.trim(), password = document.getElementById('loginPassword').value;
@@ -473,7 +562,17 @@ function showLogin() {
     } catch (error) { toast(error.message || '暂时无法登录'); }
     finally { if (document.getElementById('loginEnter')) document.getElementById('loginEnter').disabled = false; }
   };
+  selectRole(initialRole);
   document.getElementById('loginPassword').onkeydown = event => { if (event.key === 'Enter') document.getElementById('loginEnter').click(); };
 }
 const logout = document.createElement('button'); logout.className = 'btn logout'; logout.textContent = '退出登录'; logout.onclick = async () => { await fetch('/api/auth/logout', { method: 'POST' }); showLogin(); }; document.querySelector('.user').append(logout);
 fetch('/api/auth/me').then(async response => { if (!response.ok) throw new Error('signed out'); const data = await response.json(); applyAuthenticatedUser(data.user); }).catch(showLogin);
+document.querySelectorAll('.role-switch button').forEach(button => {
+  button.onclick = () => {
+    const requestedRole = button.dataset.role;
+    if (requestedRole !== activeUserRole) { showLogin(requestedRole); return; }
+    document.querySelectorAll('.role-switch button').forEach(item => item.classList.toggle('active', item === button));
+    document.getElementById('teacherApp').style.display = requestedRole === 'teacher' ? 'flex' : 'none';
+    document.getElementById('studentApp').style.display = requestedRole === 'student' ? 'block' : 'none';
+  };
+});

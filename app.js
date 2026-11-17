@@ -3,6 +3,9 @@ let conversationHistory = [];
 let sendingStudentMessage = false;
 let teacherHistory = [];
 let teacherSending = false;
+let teacherDraftId = "";
+let teacherDraftTitle = "";
+let teacherDraftKind = '备课对话';
 let activeUserRole = null;
 let practiceProgress = { completed: 0, nextAccessory: 5, nextOutfit: 20 };
 const animalOptions = { abstract: '心伴芽', cat: '芽芽猫', rabbit: '芽芽兔', fox: '芽芽狐', bear: '芽芽熊', dog: '芽芽狗' };
@@ -28,7 +31,7 @@ function addChatMessage(role, content, showActivity = false, containerId = 'mess
   if (role !== 'user') {
     const icon = document.createElement('span'); icon.className = 'tiny'; icon.textContent = role === 'teacher' ? '✦' : companionFace(); row.append(icon);
   }
-  const bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = content;
+  const bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.innerHTML = role === 'user' ? escapeHtml(content) : renderMarkdown(content);
   if (showActivity) {
     const button = document.createElement('button'); button.className = 'suggestion'; button.style.marginTop = '9px';
     button.textContent = '想试试一个小练习'; button.onclick = () => toast('练习已开始：当前为演示，不会保存或同步记录');
@@ -39,14 +42,40 @@ function addChatMessage(role, content, showActivity = false, containerId = 'mess
   const messages = document.getElementById(containerId); messages.append(row); messages.scrollTop = messages.scrollHeight;
 }
 
+function renderMarkdown(value) {
+  const escaped = String(value || '').replace(/\\([*_`])/g, '$1').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const inline = line => line
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>')
+    .replace(/\*/g, '');
+  const lines = escaped.split(/\r?\n/), out = [];
+  let list = '';
+  const flush = () => { if (list) { out.push(`<ul>${list}</ul>`); list = ''; } };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const bullet = line.match(/^[-+]\s+(.+)$/);
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (bullet || numbered) { list += `<li>${inline((bullet || numbered)[1])}</li>`; continue; }
+    flush();
+    if (heading) out.push(`<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`);
+    else if (/^---+$/.test(line)) out.push('<hr>');
+    else out.push(`<p>${inline(line)}</p>`);
+  }
+  flush();
+  return out.join('');
+}
+
 function setProgress(containerId, text) {
   const box = document.getElementById(containerId);
   box.innerHTML = `<div class="agent-progress"><div class="agent-progress-label"><span class="agent-spinner"></span><span>${text}</span></div><div class="agent-progress-track"><i></i></div></div>`;
 }
 function clearProgress(containerId) { document.getElementById(containerId)?.replaceChildren(); }
 
-window.openPlan = function () {
-  teacherHistory = []; teacherSending = false;
+window.openPlan = function (resource = null) {
+  teacherHistory = resource ? parseTeacherResource(resource.content) : []; teacherSending = false; teacherDraftId = resource?.id || (crypto.randomUUID ? crypto.randomUUID() : `draft_${Date.now()}_${Math.random().toString(36).slice(2)}`); teacherDraftTitle = resource?.title || ''; teacherDraftKind = resource?.kind || '备课对话';
   document.getElementById('modalTitle').textContent = '备课 Agent';
   const form = document.getElementById('planForm');
   form.style.display = 'block';
@@ -58,7 +87,8 @@ window.openPlan = function () {
     <div class="modal-actions"><button class="btn" onclick="closeModal()">关闭</button></div>`;
   document.querySelector('.modal').classList.add('agent-modal');
   document.getElementById('modalback').classList.add('show');
-  addChatMessage('teacher', '把你的备课想法发给我。我可以先整理课程大纲，再继续生成单课教案、PPT 大纲和配套游戏。', false, 'teacherAgentMessages');
+  if (teacherHistory.length) teacherHistory.forEach(item => addChatMessage(item.role === 'user' ? 'user' : 'teacher', item.content, false, 'teacherAgentMessages'));
+  else addChatMessage('teacher', '把你的备课想法发给我。我可以先整理课程大纲，再继续生成单课教案、PPT 大纲和配套游戏。', false, 'teacherAgentMessages');
   setTimeout(() => document.getElementById('teacherChatInput')?.focus(), 50);
 };
 
@@ -80,6 +110,7 @@ window.sendTeacherChat = async function () {
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '生成失败');
     teacherHistory.push({ role: 'user', content: message }, { role: 'assistant', content: data.reply });
     teacherHistory = teacherHistory.slice(-12);
+    await persistTeacherDraft(message, data.reply);
     clearProgress('teacherAgentProgress'); addChatMessage('teacher', data.reply, false, 'teacherAgentMessages');
   } catch (error) {
     clearProgress('teacherAgentProgress'); addChatMessage('teacher', `${error.message || '暂时无法连接'}。请检查后端和 TokenDance 配置后重试。`, false, 'teacherAgentMessages');
@@ -98,7 +129,7 @@ window.generatePlan = async function () {
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '生成失败');
     document.getElementById('planReply').textContent = `${data.draft}\n\n—— AI 生成草稿 · 请教师审核后使用`;
     document.getElementById('planForm').style.display = 'none'; document.getElementById('planResult').style.display = 'block';
-  } catch (error) { toast(error.message || '暂时无法连接后端'); }
+  } catch (error) { toast(error.message || '操作失败，请稍后重试。'); }
   finally { button.disabled = false; button.textContent = original; }
 };
 
@@ -123,6 +154,9 @@ window.sendChat = function () { const input = document.getElementById('chatInput
 const agentStyle = document.createElement('style');
 agentStyle.textContent = `.agent-modal{width:min(760px,100%);height:min(85vh,820px);display:flex;flex-direction:column}.agent-modal #planForm{display:flex!important;flex-direction:column;min-height:0;flex:1}.agent-intro{display:flex;gap:13px;align-items:center;padding:12px 14px;background:#f1f6f1;border-radius:12px;margin-bottom:12px}.agent-spark{width:38px;height:38px;border-radius:12px;background:white;color:#326c5d;display:grid;place-items:center;font-size:22px}.agent-intro b{font-size:13px}.agent-intro small{display:block;color:#77857f;font-size:11px;line-height:1.6;margin-top:4px}.agent-messages{flex:1;min-height:150px;overflow:auto;padding:6px 2px}.agent-messages .msg{align-items:flex-start}.agent-messages .bubble{white-space:pre-wrap;max-width:90%}.agent-messages .msg:not(.user) .bubble{background:#f1f5f0}.agent-progress{padding:7px 4px 12px;color:#6f8177;font-size:11px}.agent-progress-label{display:flex;align-items:center;gap:8px;margin-bottom:8px}.agent-progress-track{height:5px;border-radius:99px;background:#edf1ec;overflow:hidden}.agent-progress-track i{height:100%;display:block;width:32%;border-radius:99px;background:#68a083;animation:agent-progress 1.25s ease-in-out infinite alternate}@keyframes agent-progress{from{transform:translateX(0)}to{transform:translateX(205%)}}.agent-spinner{width:13px;height:13px;border:2px solid #d9e7de;border-top-color:#468367;border-radius:50%;animation:agent-spin .75s linear infinite}@keyframes agent-spin{to{transform:rotate(360deg)}}.agent-compose{border:1px solid #e4eae4;border-radius:12px;padding:9px;background:#fff}.agent-compose textarea{width:100%;min-height:74px;max-height:150px;resize:vertical;border:0;outline:0;margin:0;padding:6px;font:inherit;font-size:13px}.agent-compose-foot{display:flex;align-items:center;justify-content:space-between;color:#9aa49e;font-size:10px}.agent-compose-foot .btn{padding:8px 14px}.agent-modal>.modal-actions{margin-top:8px}.agent-modal .agent-messages .msg .tiny{color:#547a66;background:#edf5ef;border-radius:50%;width:27px;height:27px;text-align:center;line-height:27px;font-size:14px;flex:none}`;
 document.head.append(agentStyle);
+const fullScreenAgentStyle = document.createElement('style');
+fullScreenAgentStyle.textContent = `.agent-modal{width:min(96vw,1600px)!important;height:94vh!important;max-height:94vh}.agent-modal .agent-messages .bubble{white-space:normal}.agent-messages .bubble p,.game-agent-message p{margin:.45em 0}.agent-messages .bubble h1,.agent-messages .bubble h2,.agent-messages .bubble h3,.game-agent-message h1,.game-agent-message h2,.game-agent-message h3{margin:.5em 0;font-size:1.05em}.agent-messages .bubble ul,.game-agent-message ul{padding-left:1.35em;margin:.4em 0}.agent-messages .bubble li,.game-agent-message li{margin:.22em 0}.agent-messages .bubble code,.game-agent-message code{background:#e7eee8;padding:2px 5px;border-radius:4px}.game-editor-back{position:fixed;inset:0;z-index:120;background:#18312675;display:none;align-items:center;justify-content:center;padding:2vh 2vw}.game-editor-back.show{display:flex}.game-editor-modal{width:min(96vw,1600px);height:94vh;background:#fff;border-radius:20px;box-shadow:0 22px 80px #172d2450;display:flex;flex-direction:column;overflow:hidden}.game-editor-head{display:flex;align-items:center;justify-content:space-between;padding:15px 22px;border-bottom:1px solid #e8eee9}.game-editor-head h2{font-size:19px;margin:2px 0}.game-editor-head small{font-size:10px;color:#829187}.game-editor-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;padding:16px;min-height:0;flex:1;background:#f8faf8}.game-preview-pane,.game-agent-pane{background:#fff;border:1px solid #e5ece6;border-radius:15px;min-height:0;display:flex;flex-direction:column;padding:17px}.game-preview-pane{overflow:auto}.game-preview-meta{font-size:11px;color:#728279;margin:4px 0 14px;line-height:1.6}.game-preview-card{background:#f1f6f1;border-radius:14px;padding:20px;min-height:240px}.game-preview-card h3{font-size:18px;margin:0 0 12px}.game-preview-card p{font-size:14px;line-height:1.8;white-space:pre-wrap}.game-preview-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:16px}.game-preview-choices button{background:#fff;border:1px solid #dfe9e1;border-radius:10px;padding:11px;text-align:left}.game-preview-choices button.selected{background:#e1f0e4;border-color:#79a98d;color:#285e4c}.game-preview-input{width:100%;min-height:86px;border:1px solid #dfe8df;border-radius:10px;padding:11px;font:inherit;margin-top:12px;resize:vertical}.game-preview-controls{display:flex;justify-content:space-between;gap:8px;margin-top:14px}.game-preview-step{font-size:11px;color:#7d8d82}.game-agent-pane{gap:10px}.game-agent-intro{padding:11px 13px;background:#f1f6f1;border-radius:11px;font-size:12px;color:#52665a;line-height:1.6}.game-agent-messages{flex:1;min-height:120px;overflow:auto;border:1px solid #eef1ee;border-radius:11px;padding:11px}.game-agent-message{font-size:12px;line-height:1.65;margin:8px 0;padding:10px 12px;border-radius:11px;background:#f2f6f2;white-space:normal;overflow-wrap:anywhere}.game-agent-message.user{margin-left:12%;background:#326c5d;color:#fff}.game-agent-compose{display:flex;gap:9px;align-items:flex-end;border:1px solid #e1e9e2;border-radius:12px;padding:8px}.game-agent-compose textarea{flex:1;min-height:64px;max-height:140px;resize:vertical;border:0;outline:0;font:inherit;font-size:13px}.game-editor-footer{display:flex;justify-content:flex-end;gap:9px;padding:11px 16px;border-top:1px solid #e8eee9}.game-preview-timer{text-align:center;font-size:28px;margin:12px}.resource-empty{padding:22px;color:#77857f;font-size:13px}@media(max-width:800px){.game-editor-back{padding:0}.game-editor-modal{width:100vw;height:100dvh;border-radius:0}.game-editor-grid{grid-template-columns:1fr;overflow:auto}.game-preview-pane,.game-agent-pane{min-height:420px}.game-editor-footer{flex-wrap:wrap}.agent-modal{width:100vw!important;height:100dvh!important;max-height:100dvh;border-radius:0}}`;
+document.head.append(fullScreenAgentStyle);
 
 const gamePlaybooks = {
   '压力外化卡片': [
@@ -167,6 +201,90 @@ function renderGameCatalog(filter = 'all') {
 window.renderGames = renderGameCatalog;
 const activeFilter = document.querySelector('.filters .filter.on[data-filter]')?.dataset.filter || 'all';
 renderGameCatalog(activeFilter);
+
+let gameEditorState = null;
+let gamePreviewTimer = null;
+function ensureGameEditor() {
+  let back = document.getElementById('gameEditorBack'); if (back) return back;
+  back = document.createElement('div'); back.id = 'gameEditorBack'; back.className = 'game-editor-back';
+  back.innerHTML = `<section class="game-editor-modal"><header class="game-editor-head"><div><small>互动预览 · AI 协作改编</small><h2 id="gameEditorTitle"></h2></div><button class="btn" onclick="closeGameEditor()">关闭 ×</button></header><div class="game-editor-grid"><section class="game-preview-pane"><div><b>学生游戏预览</b><div id="gameEditorMeta" class="game-preview-meta"></div></div><div class="game-preview-card"><div id="gamePreviewStep"></div></div><div class="game-preview-controls"><button id="gamePreviewPrev" class="btn" onclick="moveGamePreview(-1)">上一步</button><span id="gamePreviewCount" class="game-preview-step"></span><button id="gamePreviewNext" class="btn primary" onclick="moveGamePreview(1)">下一步</button></div></section><section class="game-agent-pane"><div class="game-agent-intro"><b>游戏改编 Agent</b><br>描述你想调整的规则、提问、对象或活动风格。右侧对话和左侧预览分开显示。</div><div id="gameAgentMessages" class="game-agent-messages"></div><div class="game-agent-compose"><textarea id="gameEditInput" placeholder="例如：改成两人互相倾听的版本，把书写步骤换成可选卡片，不要求分享隐私。" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGameEditChat()}"></textarea><button id="gameEditSend" class="btn primary" onclick="sendGameEditChat()">发送 ↑</button></div></section></div><footer class="game-editor-footer"><button class="btn" onclick="closeGameEditor()">关闭</button><button class="btn primary" onclick="saveEditedGame()">保存到我的游戏</button></footer></section>`;
+  document.body.append(back); return back;
+}
+window.editGame = function (index, savedGame = null, resource = null) {
+  const source = savedGame || games[index]; if (!source) return;
+  document.getElementById('modalback')?.classList.remove('show');
+  const book = savedGame?.steps || gamePlaybooks[source.title] || Object.values(gamePlaybooks)[index] || [];
+  const steps = book.length ? book.map((step, stepIndex) => ({ title: step.title || `第 ${stepIndex + 1} 步`, prompt: step.prompt || '选择一个适合自己的方式完成这一步。', type: step.type === 'text' ? 'text' : step.type === 'timer' ? 'timer' : 'choice', seconds: step.seconds || 20, options: step.options || [] })) : [
+    { title: '选择参与方式', prompt: '你可以自己完成，也可以和同伴一起。愿意时再开始。', type: 'choice', options: ['我想试试', '我先看看', '和同伴一起'] },
+    { title: '探索一个小问题', prompt: '想一想这项活动对你有什么帮助。可以写下来，也可以跳过。', type: 'text', options: [] },
+    { title: '选一个小行动', prompt: '选一件轻松、可实现的小事，为活动收尾。', type: 'choice', options: ['先休息一下', '找人聊聊', '做一件小事'] }
+  ];
+  gameEditorState = { game: { title: source.title, goal: source.goal || source.desc || '', people: source.people || '学生个人或小组', risk: source.risk || '教师带领', steps }, history: [], previewIndex: 0, answers: {}, resourceId: resource?.id || null };
+  const back = ensureGameEditor(); back.classList.add('show');
+  document.getElementById('gameAgentMessages').replaceChildren();
+  appendGameAgentMessage('assistant', '可以直接告诉我希望如何修改。修改后左侧会更新，你可以逐步点击选项和输入内容预览游戏。');
+  renderGamePreview(); document.getElementById('gameEditInput').focus();
+};
+window.closeGameEditor = function () { if (gamePreviewTimer) clearInterval(gamePreviewTimer); document.getElementById('gameEditorBack')?.classList.remove('show'); };
+function renderGamePreview() {
+  if (!gameEditorState) return;
+  if (gamePreviewTimer) clearInterval(gamePreviewTimer);
+  const { game, previewIndex, answers } = gameEditorState, step = game.steps[previewIndex];
+  document.getElementById('gameEditorTitle').textContent = game.title;
+  document.getElementById('gameEditorMeta').textContent = `${game.goal} · ${game.people} · 风险提示：${game.risk}`;
+  document.getElementById('gamePreviewCount').textContent = `${previewIndex + 1} / ${game.steps.length}`;
+  document.getElementById('gamePreviewPrev').disabled = previewIndex === 0;
+  document.getElementById('gamePreviewNext').textContent = previewIndex === game.steps.length - 1 ? '从头预览' : '下一步';
+  const view = document.getElementById('gamePreviewStep'); view.replaceChildren();
+  const heading = document.createElement('h3'); heading.textContent = step.title;
+  const prompt = document.createElement('p'); prompt.textContent = step.prompt;
+  view.append(heading, prompt);
+  if (step.type === 'text') {
+    const field = document.createElement('textarea'); field.className = 'game-preview-input'; field.placeholder = '写下愿意记录的内容，也可以留空或跳过'; field.value = answers[previewIndex] || ''; field.oninput = () => { answers[previewIndex] = field.value; }; view.append(field);
+  } else if (step.type === 'timer') {
+    const timer = document.createElement('div'); timer.className = 'game-preview-timer'; timer.textContent = `${step.seconds || 20} 秒`;
+    const start = document.createElement('button'); start.className = 'btn'; start.textContent = '开始短练习'; start.onclick = () => { if (gamePreviewTimer) clearInterval(gamePreviewTimer); let left = step.seconds || 20; start.disabled = true; gamePreviewTimer = setInterval(() => { left -= 1; timer.textContent = left > 0 ? `${left} 秒` : '完成了'; if (left <= 0) { clearInterval(gamePreviewTimer); start.disabled = false; start.textContent = '再来一次'; answers[previewIndex] = '完成短练习'; } }, 1000); };
+    view.append(timer, start);
+  } else {
+    const choices = document.createElement('div'); choices.className = 'game-preview-choices';
+    (step.options.length ? step.options : ['我想试试', '我想跳过']).forEach(option => { const button = document.createElement('button'); button.textContent = option; button.classList.toggle('selected', answers[previewIndex] === option); button.onclick = () => { answers[previewIndex] = option; choices.querySelectorAll('button').forEach(item => item.classList.toggle('selected', item === button)); }; choices.append(button); });
+    view.append(choices);
+  }
+}
+window.moveGamePreview = function (direction) {
+  if (!gameEditorState) return;
+  const last = gameEditorState.game.steps.length - 1;
+  gameEditorState.previewIndex = direction > 0 && gameEditorState.previewIndex === last ? 0 : Math.max(0, Math.min(last, gameEditorState.previewIndex + direction));
+  renderGamePreview();
+};
+function appendGameAgentMessage(role, content) {
+  const row = document.createElement('div'); row.className = `game-agent-message ${role === 'user' ? 'user' : ''}`;
+  row.innerHTML = role === 'user' ? escapeHtml(content) : renderMarkdown(content);
+  document.getElementById('gameAgentMessages').append(row); row.scrollIntoView({ block: 'nearest' });
+}
+window.sendGameEditChat = async function () {
+  const state = gameEditorState, input = document.getElementById('gameEditInput'), request = input?.value.trim();
+  if (!state || !request) return;
+  const button = document.getElementById('gameEditSend'); button.disabled = true; input.value = '';
+  state.history.push({ role: 'user', content: request }); appendGameAgentMessage('user', request);
+  const progress = document.createElement('div'); progress.className = 'game-agent-message'; progress.textContent = 'Agent 正在改编游戏…'; document.getElementById('gameAgentMessages').append(progress);
+  try {
+    const response = await fetch('/api/teacher/game-edit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ game: state.game, request }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '游戏修改失败');
+    progress.remove(); state.game = data.game; state.previewIndex = 0; state.answers = {}; state.history.push({ role: 'assistant', content: data.reply });
+    appendGameAgentMessage('assistant', data.reply); renderGamePreview();
+  } catch (error) { progress.textContent = error.message || '暂时无法修改，请稍后重试。'; }
+  finally { button.disabled = false; input.focus(); }
+};
+window.saveEditedGame = async function () {
+  if (!gameEditorState) return;
+  const state = gameEditorState, id = state.resourceId || `game-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`;
+  try {
+    const response = await fetch('/api/teacher/resources', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, title: state.game.title, kind: '自定义游戏', content: JSON.stringify(state.game, null, 2) }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '保存失败');
+    state.resourceId = id; await loadTeacherResources(); toast('游戏已保存到你的个人资源库');
+  } catch (error) { toast(error.message || '保存失败，请稍后重试'); }
+};
 
 function ensureStudentJoinPanel() {
   const chatbox = document.querySelector('#studentApp .chatbox'); if (!chatbox || document.getElementById('studentClassTask')) return;
@@ -301,7 +419,7 @@ window.joinClassTask = async function () {
     window.currentClassTask = task;
     document.getElementById('joinedTaskInfo').innerHTML = `<div class="joined-task"><div><b>${escapeHtml(task.title)}</b><small>${escapeHtml(task.className || '课堂任务')} · 完成后提交记录给老师</small><input id="studentAliasInput" class="alias-input" maxlength="80" placeholder="课堂昵称或学号"></div><button class="btn small primary" onclick="startClassGame()">开始游戏</button></div>`;
     toast('已加入课堂任务');
-  } catch (error) { toast(error.message || '找不到这个课堂码'); }
+  } catch (error) { toast(error.message || '操作失败，请稍后重试。'); }
 };
 
 function makePlayer() {
@@ -413,7 +531,7 @@ window.publishGame = async function (index) {
     const response = await fetch('/api/teacher/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: game.title, gameId: `game-${index}`, className: '七年级 2 班' }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '创建课堂任务失败');
     showTaskShare(data.task); loadClassroomTasks();
-  } catch (error) { toast(error.message || '下发失败'); }
+  } catch (error) { toast(error.message || '操作失败，请稍后重试。'); }
 };
 function showTaskShare(task) {
   document.getElementById('modalTitle').textContent = '课堂任务已创建';
@@ -460,7 +578,7 @@ window.viewTaskRecords = async function (code) {
     });
     const actions = document.querySelector('#planResult .modal-actions'); actions.innerHTML = '<button class="btn primary" onclick="closeModal()">关闭</button>';
     document.querySelector('.modal').classList.add('agent-modal'); document.getElementById('modalback').classList.add('show');
-  } catch (error) { toast(error.message || '读取学生记录失败'); }
+  } catch (error) { toast(error.message || '操作失败，请稍后重试。'); }
 };
 ensureTaskManager();
 const baseSetView = window.setView;
@@ -497,7 +615,7 @@ window.clearPrivateMemory = async function () {
     const messages = document.getElementById('messages'); messages.replaceChildren();
     addChatMessage('assistant', '你好，我在这里陪你。之前的自主聊天记忆已清除；你可以从现在开始新的对话。');
     toast('自主对话记忆已清除');
-  } catch (error) { toast(error.message || '清除失败'); }
+  } catch (error) { toast(error.message || '操作失败，请稍后重试。'); }
 };
 const memoryStyle = document.createElement('style');
 memoryStyle.textContent = `.memory-disclosure{display:flex;align-items:center;gap:10px;padding:9px 14px;background:#fff9eb;border-bottom:1px solid #f0e6ce;color:#8a754c;font-size:10px;line-height:1.5}.memory-disclosure span{flex:1}.memory-disclosure .btn{flex:none;white-space:nowrap}`;
@@ -512,15 +630,28 @@ function installStudentTextarea() {
 }
 installStudentTextarea();
 const loginStyle = document.createElement('style');
-loginStyle.textContent = `.chat-input{align-items:flex-end}.chat-input textarea{flex:1;min-width:0;min-height:82px;max-height:150px;resize:vertical;border:1px solid var(--line);border-radius:12px;padding:13px;outline:none;font:inherit;font-size:14px;line-height:1.6}.chat-input textarea:focus{border-color:#9cbeab;box-shadow:0 0 0 3px #326c5d12}.chat-input button{height:46px;flex:none}.animal-orb{width:104px;height:104px;margin:12px auto;border-radius:38% 45% 42% 47%;display:grid;place-items:center;position:relative;font-size:62px;box-shadow:inset 0 -7px 14px #496d5010}.animal-orb i{position:absolute;right:5px;bottom:4px;font-size:25px;font-style:normal}.login-overlay{position:fixed;inset:0;z-index:100;background:linear-gradient(145deg,#eaf3eeed,#f6f7f1f2);display:grid;place-items:center;padding:18px}.login-card{width:min(480px,100%);background:#fff;border:1px solid #e6ede7;border-radius:22px;padding:32px;box-shadow:0 22px 90px #25433320}.login-brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}.login-brand .brandmark{width:44px;height:44px}.login-card h1{font-size:24px;margin:0 0 8px}.login-card p{font-size:12px;color:#77857f;line-height:1.8;margin:0 0 20px}.login-roles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}.login-role{border:1px solid #e6ece6;border-radius:12px;padding:16px;background:#fff;text-align:left}.login-role.selected{border-color:#79a98d;background:#f1f7f2;color:#326c5d}.login-role b{display:block;font-size:14px;margin-bottom:5px}.login-role small{color:#86928b;font-size:10px}.login-mode{display:flex;gap:6px;padding:4px;background:#f4f7f3;border-radius:9px;margin:0 0 16px}.login-mode button{flex:1;padding:9px;background:transparent;border-radius:7px;color:#75837a;font-size:11px}.login-mode button.selected{background:white;color:#326c5d;font-weight:600;box-shadow:0 1px 4px #1b382414}.login-card label{display:block;color:#64746b;font-size:11px}.login-card input{width:100%;padding:12px;border:1px solid #e3eae3;border-radius:9px;margin:7px 0 14px}.login-card .login-enter{width:100%;padding:12px}.login-demo{margin-top:14px;padding:10px 12px;border-radius:9px;background:#faf6ec;color:#8a754c;font-size:10px;line-height:1.7}.login-safety{margin-top:14px;font-size:10px!important;text-align:center}.topright .logout{font-size:10px;padding:7px 9px}@media(max-width:520px){.login-card{padding:24px 20px}.chat-input{padding:10px}.chat-input textarea{min-height:72px}}`;
+loginStyle.textContent = `.chat-input{align-items:flex-end}.chat-input textarea{flex:1;min-width:0;min-height:82px;max-height:150px;resize:vertical;border:1px solid var(--line);border-radius:12px;padding:13px;outline:none;font:inherit;font-size:14px;line-height:1.6}.chat-input textarea:focus{border-color:#9cbeab;box-shadow:0 0 0 3px #326c5d12}.chat-input button{height:46px;flex:none}.animal-orb{width:104px;height:104px;margin:12px auto;border-radius:38% 45% 42% 47%;display:grid;place-items:center;position:relative;font-size:62px;box-shadow:inset 0 -7px 14px #496d5010}.animal-orb i{position:absolute;right:5px;bottom:4px;font-size:25px;font-style:normal}.login-overlay{position:fixed;inset:0;z-index:100;background:linear-gradient(145deg,#eaf3eeed,#f6f7f1f2);display:grid;place-items:center;padding:18px}.login-card{width:min(480px,100%);background:#fff;border:1px solid #e6ede7;border-radius:22px;padding:32px;box-shadow:0 22px 90px #25433320}.login-brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}.login-brand .brandmark{width:44px;height:44px}.login-card h1{font-size:24px;margin:0 0 8px}.login-card p{font-size:12px;color:#77857f;line-height:1.8;margin:0 0 20px}.login-roles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}.login-role{border:1px solid #e6ece6;border-radius:12px;padding:16px;background:#fff;text-align:left}.login-role.selected{border-color:#79a98d;background:#f1f7f2;color:#326c5d}.login-role b{display:block;font-size:14px;margin-bottom:5px}.login-role small{color:#86928b;font-size:10px}.login-mode{display:flex;gap:6px;padding:4px;background:#f4f7f3;border-radius:9px;margin:0 0 16px}.login-mode button{flex:1;padding:9px;background:transparent;border-radius:7px;color:#75837a;font-size:11px}.login-mode button.selected{background:white;color:#326c5d;font-weight:600;box-shadow:0 1px 4px #1b382414}.login-card label{display:block;color:#64746b;font-size:11px}.login-card input{width:100%;padding:12px;border:1px solid #e3eae3;border-radius:9px;margin:7px 0 14px}.login-card .login-enter{width:100%;padding:12px}.login-error{margin-top:10px;padding:10px 12px;border-radius:9px;background:#fff0ed;color:#a64032;font-size:12px;line-height:1.6}.login-safety{margin-top:14px;font-size:10px!important;text-align:center}.topright .logout{font-size:10px;padding:7px 9px}@media(max-width:520px){.login-card{padding:24px 20px}.chat-input{padding:10px}.chat-input textarea{min-height:72px}}`;
 document.head.append(loginStyle);
 const studentExperienceStyle = document.createElement('style');
 studentExperienceStyle.textContent = `.student-layout{width:min(1480px,100%);grid-template-columns:250px minmax(0,1fr);gap:28px;padding-top:22px}.student-layout .chatbox{height:calc(100vh - 145px);min-height:540px;max-height:1000px}.student-layout .messages .bubble{max-width:82%;font-size:14px}.student-layout .chat-input textarea{min-height:110px;font-size:15px}.heart-sprout{display:block;width:138px;height:145px;margin:6px auto 10px;overflow:visible;filter:drop-shadow(0 5px 3px #486d5010)}.companion-progress{margin:10px 0 15px;text-align:left}.growth-count{font-size:11px;color:#607269}.growth-count b{font-size:15px;color:#326c5d}.growth-track{height:6px;margin:7px 0 5px;background:#fff;border-radius:99px;overflow:hidden}.growth-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#88b997,#eac985);transition:width .3s}.companion-progress small{font-size:9px;color:#88968d}.companion-modal{width:min(760px,100%)}.collection-intro{font-size:11px;color:#77857f;margin:6px 0 0}.companion-collection{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px}.collection-item{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:0;padding:13px 8px;border:1px solid #e7ece7;border-radius:13px;background:#fff;text-align:center}.collection-item.unlocked{cursor:pointer}.collection-item.selected{border-color:#78a98b;background:#f2f7f1}.collection-item.locked{opacity:.58}.collection-art{display:grid;place-items:center;width:58px;height:58px;border-radius:18px;background:var(--item-color);font-size:29px}.collection-item b{font-size:11px}.collection-item small{font-size:9px;color:#77857f;line-height:1.4}.collection-status{font-size:9px;color:#658a70}.collection-item.locked .collection-status{color:#a18b61}.practice-history{margin-top:20px;border-top:1px solid #e9eee9;padding-top:12px}.practice-history h3{font-size:12px;margin:0 0 8px}.practice-history>p{font-size:10px;color:#87938c}.practice-history-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #f0f2ef;font-size:10px}.practice-history-row small{color:#87938c;white-space:nowrap}@media(max-width:850px){.student-layout{width:100%;grid-template-columns:1fr;padding:16px;gap:14px}.student-layout .pet-card{display:block;padding:12px}.student-layout .heart-sprout{width:92px;height:96px;margin:0 auto}.student-layout .pet-items{margin:7px}.student-layout .pet-card p{margin:4px}.student-layout .companion-setup{max-width:420px;margin:7px auto}.student-layout .pet-tabs{margin:7px 0}.student-layout .chatbox{height:calc(100vh - 315px);min-height:460px}.companion-collection{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.student-layout{padding:10px}.student-layout .pet-card .eyebrow,.student-layout .pet-card p,.student-layout .pet-items{display:none}.student-layout .pet-card{display:grid;grid-template-columns:74px 1fr;align-items:center;text-align:left;column-gap:10px}.student-layout .heart-sprout{grid-row:span 3;width:72px;height:75px}.student-layout .pet-card h3{margin:0}.student-layout .companion-setup{grid-column:2;margin:3px 0;padding:6px}.student-layout .companion-setup label,.student-layout .companion-setup #companionDescription{display:none}.student-layout .companion-setup select{margin:0;padding:5px}.student-layout .pet-tabs{grid-column:2;justify-content:flex-start;margin:3px 0}.student-layout .companion-progress{grid-column:1/-1;width:100%;margin:0}.student-layout .chatbox{height:calc(100vh - 260px);min-height:380px}.student-layout .messages{padding:12px}.student-layout .messages .bubble{max-width:88%;font-size:13px}.student-layout .chat-input textarea{min-height:76px}.companion-modal{padding:16px}.collection-item{padding:10px 5px}}`;
 document.head.append(studentExperienceStyle);
 function accountHash(value) { let hash = 2166136261; for (const char of value) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(36); }
+let teacherGreetingTimer;
+function updateTeacherGreeting(displayName) {
+  const now = new Date(), hour = now.getHours();
+  const greeting = hour < 11 ? '早上好' : hour < 18 ? '下午好' : '晚上好';
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(now).toUpperCase();
+  const date = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(now);
+  const dateNode = document.querySelector('#home .eyebrow'), titleNode = document.querySelector('#home .heading h1');
+  if (dateNode) dateNode.textContent = `${weekday} · ${date}`;
+  if (titleNode) titleNode.textContent = `${greeting}，${displayName} 🌿`;
+  if (teacherGreetingTimer) clearInterval(teacherGreetingTimer);
+  teacherGreetingTimer = setInterval(() => updateTeacherGreeting(displayName), 60_000);
+}
 function applyAuthenticatedUser(user) {
   const role = user.role, displayName = user.displayName || (role === 'teacher' ? '老师' : '同学');
   activeUserRole = role;
+  if (role === 'teacher') updateTeacherGreeting(displayName);
   profileKey = `${role}-${accountHash(user.id)}`;
   const roleButton = document.querySelector(`[data-role="${role}"]`); if (roleButton) roleButton.click();
   document.querySelector('.user span').textContent = displayName;
@@ -532,6 +663,7 @@ function applyAuthenticatedUser(user) {
   const picker = document.getElementById('companionAnimal'); if (picker) picker.value = companionAnimal;
   renderCompanion();
   if (role === 'student') { restorePrivateConversation().then(refreshDailyAppearance); loadPracticeProgress(); }
+  if (role === "teacher") loadTeacherResources();
   document.getElementById('loginOverlay')?.remove();
 }
 function showLogin(initialRole = activeUserRole || 'teacher') {
@@ -542,8 +674,10 @@ function showLogin(initialRole = activeUserRole || 'teacher') {
     return;
   }
   const overlay = document.createElement('div'); overlay.id = 'loginOverlay'; overlay.className = 'login-overlay';
-  overlay.innerHTML = `<section class="login-card"><div class="login-brand"><div class="brandmark">✿</div><div><b>心伴</b><small style="display:block;color:#9aa59f;font-size:9px;letter-spacing:1px;margin-top:3px">MINDFUL LEARNING SPACE</small></div></div><h1>欢迎来到心伴</h1><p>教师与学生使用各自独立的账号。请选择身份，再登录或注册。</p><div class="login-roles"><button class="login-role selected" data-login-role="teacher"><b>教师</b><small>备课工作台与课堂管理</small></button><button class="login-role" data-login-role="student"><b>学生</b><small>聊天、练习与心伴小动物</small></button></div><div class="login-mode"><button class="selected" data-mode="login">登录</button><button data-mode="register">注册新账号</button></div><div id="registerNameWrap" style="display:none"><label for="loginName">显示名称</label><input id="loginName" maxlength="24" placeholder="例如：林老师 / 小树同学"></div><div id="teacherInviteWrap" style="display:none"><label for="teacherInvite">教师邀请码</label><input id="teacherInvite" maxlength="100" autocomplete="off" placeholder="向平台管理员获取"></div><label for="loginAccount">账号</label><input id="loginAccount" maxlength="48" autocomplete="username" placeholder="3–48 位字母、数字或 . _ @ -"><label for="loginPassword">密码</label><input id="loginPassword" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="至少 8 位"><button id="loginEnter" class="btn primary login-enter">登录并进入教师端</button><div class="login-demo">密码通过 scrypt 哈希保存；登录状态由 HttpOnly Cookie 维持。教师注册需管理员邀请码；请勿复用个人常用密码。</div><p class="login-safety">本平台为心理教育练习工具，不替代专业心理诊疗。如有严重心理困扰，请联系学校心理老师或专业医疗机构。</p></section>`;
+  overlay.innerHTML = `<section class="login-card"><div class="login-brand"><div class="brandmark">✿</div><div><b>心伴</b><small style="display:block;color:#9aa59f;font-size:9px;letter-spacing:1px;margin-top:3px">MINDFUL LEARNING SPACE</small></div></div><h1>欢迎来到心伴</h1><p>教师与学生使用各自独立的账号。请选择身份，再登录或注册。</p><div class="login-roles"><button class="login-role selected" data-login-role="teacher"><b>教师</b><small>备课工作台与课堂管理</small></button><button class="login-role" data-login-role="student"><b>学生</b><small>聊天、练习与心伴小动物</small></button></div><div class="login-mode"><button class="selected" data-mode="login">登录</button><button data-mode="register">注册新账号</button></div><div id="registerNameWrap" style="display:none"><label for="loginName">显示名称</label><input id="loginName" maxlength="24" placeholder="例如：林老师 / 小树同学"></div><div id="teacherInviteWrap" style="display:none"><label for="teacherInvite">教师邀请码</label><input id="teacherInvite" maxlength="100" autocomplete="off" placeholder="向平台管理员获取"></div><label for="loginAccount">账号</label><input id="loginAccount" maxlength="48" autocomplete="username" placeholder="3–48 位字母、数字或 . _ @ -"><label for="loginPassword">密码</label><input id="loginPassword" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="至少 8 位"><button id="loginEnter" class="btn primary login-enter">登录并进入教师端</button><p class="login-safety">本平台为心理教育练习工具，不替代专业心理诊疗。如有严重心理困扰，请联系学校心理老师或专业医疗机构。</p></section>`;
   document.body.append(overlay);
+  const errorBox = document.createElement("div"); errorBox.id = "loginError"; errorBox.className = "login-error"; errorBox.style.display = "none";
+  overlay.querySelector("#loginEnter")?.after(errorBox);
   let selectedRole = initialRole;
   let mode = 'login';
   const updateSubmitLabel = () => { document.getElementById('loginEnter').textContent = mode === 'register' ? '注册并进入' : `登录并进入${selectedRole === 'teacher' ? '教师端' : '学生端'}`; document.getElementById('teacherInviteWrap').style.display = mode === 'register' && selectedRole === 'teacher' ? 'block' : 'none'; };
@@ -551,6 +685,7 @@ function showLogin(initialRole = activeUserRole || 'teacher') {
   overlay.querySelectorAll('[data-login-role]').forEach(button => button.onclick = () => selectRole(button.dataset.loginRole));
   overlay.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => { mode = button.dataset.mode; overlay.querySelectorAll('[data-mode]').forEach(item => item.classList.toggle('selected', item === button)); document.getElementById('registerNameWrap').style.display = mode === 'register' ? 'block' : 'none'; document.getElementById('loginPassword').autocomplete = mode === 'register' ? 'new-password' : 'current-password'; updateSubmitLabel(); });
   document.getElementById('loginEnter').onclick = async () => {
+    const errorBox = document.getElementById('loginError'); if (errorBox) { errorBox.textContent = ''; errorBox.style.display = 'none'; }
     const username = document.getElementById('loginAccount').value.trim(), password = document.getElementById('loginPassword').value;
     const displayName = document.getElementById('loginName')?.value.trim() || '';
     const button = document.getElementById('loginEnter'); button.disabled = true;
@@ -559,7 +694,7 @@ function showLogin(initialRole = activeUserRole || 'teacher') {
       const response = await fetch(`/api/auth/${mode === 'register' ? 'register' : 'login'}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: selectedRole, username, password, displayName, inviteCode }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || '登录失败');
       applyAuthenticatedUser(data.user); toast(mode === 'register' ? '账号已创建' : '登录成功');
-    } catch (error) { toast(error.message || '暂时无法登录'); }
+    } catch (error) { if (errorBox) { errorBox.textContent = error.message || '账号或密码不正确，请检查所选身份。'; errorBox.style.display = 'block'; } else toast(error.message || '登录失败，请稍后重试。'); }
     finally { if (document.getElementById('loginEnter')) document.getElementById('loginEnter').disabled = false; }
   };
   selectRole(initialRole);
@@ -576,3 +711,76 @@ document.querySelectorAll('.role-switch button').forEach(button => {
     document.getElementById('studentApp').style.display = requestedRole === 'student' ? 'block' : 'none';
   };
 });
+
+function parseTeacherResource(content) {
+  const entries = String(content || '').split(/\n\n(?=(?:教师|Agent)：)/).map(part => {
+    const match = part.match(/^(教师|Agent)：([\s\S]*)$/);
+    return match ? { role: match[1] === '教师' ? 'user' : 'assistant', content: match[2].trim() } : null;
+  }).filter(item => item?.content);
+  return entries.length ? entries : [{ role: 'assistant', content: String(content || '') }];
+}
+function editSavedResource(resource) {
+  if (resource.kind === '自定义游戏') {
+    try { window.editGame(null, JSON.parse(resource.content), resource); } catch { showTeacherResource(resource); }
+    return;
+  }
+  if (/备课|课程/.test(resource.kind)) { window.openPlan(resource); return; }
+  showTeacherResource(resource);
+}
+
+async function persistTeacherDraft() {
+  if (!teacherDraftId || !teacherHistory.length) return;
+  const firstPrompt = teacherHistory.find(item => item.role === 'user')?.content || '备课对话';
+  const content = teacherHistory.map(item => `${item.role === 'user' ? '教师' : 'Agent'}：${item.content}`).join('\n\n');
+  try {
+    const response = await fetch('/api/teacher/resources', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: teacherDraftId, title: teacherDraftTitle || firstPrompt.slice(0, 60), kind: teacherDraftKind, content }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '保存失败');
+    loadTeacherResources();
+  } catch (error) { toast(error.message || '备课内容暂未保存'); }
+}
+
+async function loadTeacherResources() {
+  const container = document.querySelector('#library .card'); if (!container) return;
+  try {
+    const response = await fetch('/api/teacher/resources'); const data = await response.json(); if (!response.ok) throw new Error(data.error || '读取失败');
+    container.replaceChildren();
+    if (!data.resources.length) { const empty = document.createElement('p'); empty.className = 'resource-empty'; empty.textContent = '这里会保存当前账号创建的备课对话和课程内容。'; container.append(empty); return; }
+    for (const resource of data.resources) {
+      const row = document.createElement('div'); row.className = 'course';
+      const icon = document.createElement('div'); icon.className = 'course-icon'; icon.textContent = resource.kind === '课程方案' ? '📚' : '✦';
+      const meta = document.createElement('div'); meta.className = 'course-meta';
+      const title = document.createElement('b'); title.textContent = resource.title;
+      const updated = document.createElement('small'); updated.textContent = `${resource.kind} · ${new Date(resource.updatedAt).toLocaleString()}`;
+      meta.append(title, updated);
+      const badge = document.createElement('span'); badge.className = 'pill'; badge.textContent = resource.kind;
+      const open = document.createElement('button'); open.className = 'btn small'; open.textContent = resource.kind === '自定义游戏' || /备课|课程/.test(resource.kind) ? '编辑' : '查看'; open.onclick = () => editSavedResource(resource);
+      const remove = document.createElement('button'); remove.className = 'btn small'; remove.textContent = '删除'; remove.onclick = async () => { if (!confirm('删除这份个人资源？')) return; const result = await fetch(`/api/teacher/resources/${encodeURIComponent(resource.id)}`, { method: 'DELETE' }); if (result.ok) loadTeacherResources(); else toast('删除失败，请稍后重试'); };
+      row.append(icon, meta, badge, open, remove); container.append(row);
+    }
+  } catch (error) { container.replaceChildren(); const message = document.createElement('p'); message.className = 'resource-empty'; message.textContent = error.message || '个人资源暂时无法读取'; container.append(message); }
+}
+
+function showTeacherResource(resource) {
+  const modal = document.getElementById('detailModal'); if (!modal) return;
+  document.getElementById('detailTitle').textContent = resource.title;
+  const body = document.getElementById('detailBody'); body.replaceChildren();
+  const type = document.createElement('p'); type.textContent = `${resource.kind} · ${new Date(resource.updatedAt).toLocaleString()}`;
+  const content = document.createElement('div'); content.innerHTML = renderMarkdown(resource.content); content.style.lineHeight = '1.7';
+  body.append(type, content); modal.classList.add('show');
+}
+
+
+
+window.savePlanResource = async function () {
+  const content = document.getElementById('planReply')?.textContent?.trim() || teacherHistory.map(item => `${item.role}: ${item.content}`).join('\n\n');
+  if (!content) return toast('没有可保存的课程内容');
+  if (!teacherDraftId) teacherDraftId = crypto.randomUUID ? crypto.randomUUID() : `draft_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const title = document.getElementById('theme')?.value || teacherHistory.find(item => item.role === 'user')?.content?.slice(0, 60) || '课程方案';
+  teacherDraftTitle = title; teacherDraftKind = '课程方案';
+  try {
+    const response = await fetch('/api/teacher/resources', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: teacherDraftId, title, kind: '课程方案', content }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '保存失败');
+    await loadTeacherResources(); toast('已保存到当前教师账号的资源库'); closeModal();
+  } catch (error) { toast(error.message || '保存失败，请稍后重试'); }
+};
+const savePlanButton = document.querySelector('#planResult .modal-actions .btn:nth-child(2)'); if (savePlanButton) savePlanButton.onclick = window.savePlanResource;

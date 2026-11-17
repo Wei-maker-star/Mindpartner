@@ -14,8 +14,11 @@ const BASE_URL = (process.env.TOKENDANCE_BASE_URL || 'https://tokendance.space/g
 const MODEL = process.env.TOKENDANCE_MODEL;
 const MAX_BODY = 5_000_000;
 const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_CA_CERT = process.env.DATABASE_CA_CERT_BASE64
+  ? Buffer.from(process.env.DATABASE_CA_CERT_BASE64.replace(/\s/g, ''), 'base64').toString('utf8')
+  : process.env.DATABASE_CA_CERT;
 const { Pool } = pg;
-const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: true }, max: 5, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000 }) : null;
+const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: true, ...(DATABASE_CA_CERT ? { ca: DATABASE_CA_CERT } : {}) }, max: 5, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000 }) : null;
 let GAME_CATALOG = [];
 try { GAME_CATALOG = JSON.parse(fs.readFileSync(path.join(here, 'data', 'game-catalog.json'), 'utf8')); } catch {}
 

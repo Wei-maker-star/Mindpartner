@@ -29,6 +29,7 @@ In the Render service page, open **Environment** → **Add Environment Variable*
 | Key | Value |
 | --- | --- |
 | `DATABASE_URL` | The complete Supabase **Session pooler** URI copied above, with the password filled in |
+| `DATABASE_CA_CERT_BASE64` | Optional. If Node reports `self-signed certificate in certificate chain`, download the Supabase database CA certificate (Database Settings → SSL Configuration), then base64-encode the `.crt` file and set the resulting value here. The backend continues to verify the certificate chain. |
 | `TOKENDANCE_API_KEY` | Your TokenDance API key |
 | `TOKENDANCE_BASE_URL` | `https://tokendance.space/gateway/v1` |
 | `TOKENDANCE_MODEL` | The exact model ID from TokenDance, such as your configured model |
@@ -36,6 +37,14 @@ In the Render service page, open **Environment** → **Add Environment Variable*
 | `NODE_ENV` | `production` |
 
 Do not set `PORT`; Render supplies it. Save changes and redeploy. When deployment finishes, open `https://<service-name>.onrender.com/api/health`. `databaseReady` should be `true`; if it is `false`, confirm the connection string, network mode, and that `schema.sql` ran successfully.
+
+To base64-encode a downloaded certificate on Windows PowerShell, run (replace the path with the downloaded `.crt` file path):
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\prod-ca-2021.crt"))
+```
+
+Copy the output into Render's `DATABASE_CA_CERT_BASE64` value. The certificate itself is public; keep database passwords and connection strings private. Do not work around certificate errors by disabling SSL verification.
 
 ## What this database currently stores
 

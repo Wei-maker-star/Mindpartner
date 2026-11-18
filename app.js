@@ -805,10 +805,10 @@ window.sendGameFollowup = async function () {
   const session = window.gameSession; if (!session || session.followupSent) return;
   const footer = document.querySelector('.game-player-foot'), buttons = [...footer.querySelectorAll('button')]; buttons.forEach(button => button.disabled = true);
   const status = document.createElement('span'); status.className = 'followup-status'; status.textContent = '心伴正在根据本次活动整理回应…'; footer.prepend(status);
-  const answers = session.actions.map(action => ({ step: action.step, choice: action.choice, reflection: action.reflection, skipped: action.skipped, drawingCreated: Boolean(action.drawingData) })).map(item => JSON.stringify(item)).join('\n').slice(0, 1400);
-  const message = `我刚完成心理课堂小游戏「${session.task.title}」。这是我愿意分享给心伴的活动反馈：\n${answers || '我完成了活动，但没有留下文字选择。'}\n请像友善的同伴一样，先肯定我的参与，再结合我选择的内容给我一个温和、具体、可选的下一步小练习或问题。不要诊断、不要评价画作，也不要推断我没说过的感受。`;
+  const message = `我刚完成了小游戏「${session.task.title}」，想和你聊聊这次体验。`;
+  const activityFeedback = { title: session.task.title, actions: session.actions.map(action => ({ step: action.step, choice: action.choice, reflection: action.reflection, skipped: Boolean(action.skipped), drawingCreated: Boolean(action.drawingData), drawingData: action.drawingData || '' })) };
   try {
-    const response = await fetch('/api/student/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, studentId: memoryStudentId, conversationId: privateConversationId, scope: 'private', activityContext: { title: session.task.title, completed: true }, ...companionRequestContext() }) });
+    const response = await fetch('/api/student/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, studentId: memoryStudentId, conversationId: privateConversationId, scope: 'private', activityContext: { title: session.task.title, completed: true }, activityFeedback, ...companionRequestContext() }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '暂时无法生成跟进');
     session.followupSent = true; status.remove();
     const area = document.getElementById('gameChatArea'); area.replaceChildren();

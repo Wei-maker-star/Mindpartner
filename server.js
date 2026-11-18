@@ -48,7 +48,7 @@ function safePracticeActions(actions) {
   })) : [];
 }
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
@@ -630,7 +630,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 404, { error: 'Not found' });
   const requested = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
-  if (!['/index.html', '/app.js', '/game-ppt.js', '/data/game-catalog.json'].includes(requested)) return json(res, 404, { error: 'Not found' });
+  const companionAsset = /^\/assets\/companion-(sprout|cat|rabbit|fox|bear)\.png$/.test(requested);
+  if (!['/index.html', '/app.js', '/game-ppt.js', '/data/game-catalog.json'].includes(requested) && !companionAsset) return json(res, 404, { error: 'Not found' });
   const file = path.join(here, requested.slice(1));
   fs.readFile(file, (error, data) => {
     if (error) return json(res, 404, { error: 'Not found' });

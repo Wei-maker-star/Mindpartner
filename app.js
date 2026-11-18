@@ -8,7 +8,7 @@ let teacherDraftTitle = "";
 let teacherDraftKind = '备课对话';
 let activeUserRole = null;
 let practiceProgress = { completed: 0, nextAccessory: 5, nextOutfit: 20 };
-const animalOptions = { abstract: '心伴芽', cat: '芽芽猫', rabbit: '芽芽兔', fox: '芽芽狐', bear: '芽芽熊', dog: '芽芽狗' };
+const animalOptions = { abstract: '心伴芽', cat: '芽芽猫', rabbit: '芽芽兔', fox: '芽芽狐', bear: '芽芽熊' };
 let profileKey = 'default';
 let companionAnimal = localStorage.getItem(`xinban.companion.animal.${profileKey}`) || 'abstract';
 let companionProfile = null;
@@ -24,12 +24,13 @@ function getPersistentId(key) {
 }
 let memoryStudentId = getPersistentId('xinban.student.id');
 let privateConversationId = getPersistentId('xinban.private.conversation');
+let privateMessages = [];
 
 function addChatMessage(role, content, showActivity = false, containerId = 'messages') {
   const row = document.createElement('div');
   row.className = role === 'user' ? 'msg user' : 'msg';
   if (role !== 'user') {
-    const icon = document.createElement('span'); icon.className = 'tiny'; icon.textContent = role === 'teacher' ? '✦' : companionFace(); row.append(icon);
+    const icon = document.createElement('span'); icon.className = 'tiny'; icon.innerHTML = role === 'teacher' ? '✦' : companionAvatarSvg(companionAnimal, 'chat-avatar'); row.append(icon);
   }
   const bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.innerHTML = role === 'user' ? escapeHtml(content) : renderMarkdown(content);
   if (showActivity && containerId === 'messages') {
@@ -140,7 +141,7 @@ window.generatePlan = async function () {
 
 window.sendText = async function (message) {
   if (sendingStudentMessage || !message.trim()) return;
-  sendingStudentMessage = true; addChatMessage('user', message);
+  sendingStudentMessage = true; addChatMessage('user', message); privateMessages.push({ role: 'user', content: message, createdAt: new Date().toISOString() });
   const button = document.querySelector('.chat-input button'); button.disabled = true;
   const progress = document.createElement('div'); progress.id = 'studentProgress'; document.querySelector('.chat-suggestions').before(progress);
   setProgress('studentProgress', '棉棉正在认真听…');
@@ -148,6 +149,7 @@ window.sendText = async function (message) {
     const response = await fetch('/api/student/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, studentId: memoryStudentId, conversationId: privateConversationId, scope: 'private', ...companionRequestContext() }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '暂时无法连接');
     clearProgress('studentProgress'); addChatMessage('assistant', data.reply, data.safetyEscalation ? false : data.recommendation || false);
+    privateMessages.push({ role: 'assistant', content: data.reply, createdAt: new Date().toISOString() });
     conversationHistory.push({ role: 'user', content: message }, { role: 'assistant', content: data.reply }); conversationHistory = conversationHistory.slice(-12);
     refreshDailyAppearance();
   } catch (error) {
@@ -465,34 +467,37 @@ function companionRequestContext() {
 function companionFace(animal = companionAnimal) {
   return ({ abstract: '🐾', cat: '🐱', rabbit: '🐰', fox: '🦊', bear: '🐻', dog: '🐶' })[animal] || '🐾';
 }
+function companionAvatarSvg(animal = companionAnimal, className = '') {
+  const colors = { abstract: ['#ffe9a8','#f6d8a1'], cat: ['#fffaf1','#f3b6a7'], rabbit: ['#fffaf4','#f2a99b'], fox: ['#f3a35e','#fff4e8'], bear: ['#c99468','#f3c9a8'], dog: ['#e9c99f','#f5b5a9'] };
+  const [baseCoat, cheek] = colors[animal] || colors.abstract;
+  const coat = animal === 'abstract' && /^#[0-9a-fA-F]{6}$/.test(dailyAppearance?.palette || '') ? dailyAppearance.palette : baseCoat;
+  const ears = {
+    abstract: '<path d="M34 47Q19 14 39 26L51 43M68 43Q83 14 96 29L82 49"/>',
+    cat: '<path d="M31 49L28 18Q29 12 35 19L51 39M69 39L88 18Q93 14 92 24L86 50"/>',
+    rabbit: '<path d="M42 42Q25 5 39 4Q53 5 54 41M66 41Q65 5 80 5Q94 8 78 44"/>',
+    fox: '<path d="M31 47L24 13L53 39M67 39L96 13L88 49"/>',
+    bear: '<path d="M31 42Q15 20 30 14Q44 11 49 36M70 36Q76 11 90 14Q105 20 88 43"/>',
+  }[animal] || '';
+  const foxMask = animal === 'fox' ? '<path d="M34 49Q50 40 61 52Q73 40 86 49L78 64L62 59L45 65Z" fill="#fff8ef" stroke="none"/>' : '';
+  const sprout = animal === 'abstract' ? '<path d="M57 29Q49 11 39 16Q42 31 57 33M62 29Q70 11 82 16Q77 31 62 33" fill="#a9ce8d" stroke="#648568" stroke-width="2"/>' : '<path d="M60 24Q55 12 46 16Q49 26 60 28M62 24Q70 12 78 17Q74 27 62 28" fill="#9cc786" stroke="#648568" stroke-width="2"/>';
+  const flourish = ({ stars: '<path d="M96 53l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="#f0cf79"/>', waves: '<path d="M92 54q4-4 8 0t8 0" fill="none" stroke="#8fc5c5" stroke-width="3" stroke-linecap="round"/>', dots: '<circle cx="99" cy="58" r="3" fill="#e8b5a9"/><circle cx="91" cy="66" r="2" fill="#e8b5a9"/>', leaves: '<path d="M94 61q0-9 8-10-1 9-8 10m1 1q-7-5-12-1 6 6 12 1" fill="#a9ce8d"/>' })[dailyAppearance?.motif] || '';
+  return `<svg class="${className}" viewBox="0 0 120 132" aria-hidden="true"><g fill="${coat}" stroke="#795d45" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">${ears}<path d="M30 53Q29 42 43 41H77Q91 42 90 56L87 85Q83 106 61 108Q38 106 33 86Z"/><path d="M43 103Q39 117 49 119Q56 119 56 108M68 108Q67 119 76 119Q85 117 79 103"/></g>${sprout}${foxMask}${flourish}<g fill="#5a4438"><ellipse cx="47" cy="66" rx="3.7" ry="5"/><ellipse cx="73" cy="66" rx="3.7" ry="5"/></g><circle cx="38" cy="77" r="6" fill="${cheek}" opacity=".78"/><circle cx="82" cy="77" r="6" fill="${cheek}" opacity=".78"/><path d="M56 76Q60 72 64 76Q62 82 60 82Q58 82 56 76ZM53 84Q60 91 67 84" fill="none" stroke="#795d45" stroke-width="2.6" stroke-linecap="round"/><path d="M45 104Q60 96 75 104L73 115Q60 120 47 115Z" fill="#b7d89f" stroke="#795d45" stroke-width="2"/><path d="M57 107Q60 103 63 107Q63 112 60 114Q57 112 57 107Z" fill="#ef9a89"/></svg>`;
+}
 function renderCompanion() {
   const pet = document.getElementById('pet'); if (!pet) return;
-  const palette = dailyAppearance?.palette || '#dceee2', accent = dailyAppearance?.accent || '#efcf8a';
-  const ears = {
-    abstract: '<path d="M29 39C15 13 35 12 44 34M57 34C67 9 88 17 72 43"/>',
-    cat: '<path d="M28 43 24 17Q25 13 30 17L45 32M57 32 73 17Q78 14 77 21L73 44"/>',
-    rabbit: '<path d="M37 38C25 11 32 3 40 7Q49 11 47 35M56 35Q52 10 62 6Q74 7 67 40"/>',
-    fox: '<path d="M29 42 22 15 45 31M57 31 80 15 73 43"/>',
-    bear: '<path d="M29 35C16 23 19 12 30 13Q40 13 43 32M57 32Q60 13 72 13Q84 23 71 36"/>',
-    dog: '<path d="M31 34Q12 18 19 45L35 48M65 34Q84 18 81 45L65 48"/>'
-  }[companionAnimal] || '';
-  const outfitValue = localStorage.getItem(`xinban.outfit.${profileKey}`), selectedOutfit = outfitValue === null ? -1 : Number(outfitValue);
-  const wornOutfit = Number.isInteger(selectedOutfit) && selectedOutfit >= 0 && selectedOutfit < outfitCollection.length && practiceProgress.completed >= (selectedOutfit + 1) * 20 ? outfitCollection[selectedOutfit] : null;
-  const accessoryValue = localStorage.getItem(`xinban.accessory.${profileKey}`), selectedAccessory = accessoryValue === null ? -1 : Number(accessoryValue);
-  const wornAccessory = Number.isInteger(selectedAccessory) && selectedAccessory >= 0 && selectedAccessory < accessoryCollection.length && practiceProgress.completed >= (selectedAccessory + 1) * 5 ? accessoryCollection[selectedAccessory] : null;
-  pet.innerHTML = `<svg class="heart-sprout" viewBox="0 0 120 126" role="img" aria-label="${animalOptions[companionAnimal] || '心伴芽'}"><g fill="${palette}" stroke="#638f76" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${ears}<path d="M29 42Q28 36 35 36H69Q79 37 80 47L84 69Q84 96 58 101Q31 100 27 77Z"/><path d="M42 36Q40 25 48 20Q56 25 53 36" fill="#a6cf9e"/><path d="M51 25Q61 12 72 19Q66 30 54 31" fill="#bddba9"/></g><g fill="#315745"><ellipse cx="43" cy="62" rx="3" ry="4"/><ellipse cx="65" cy="62" rx="3" ry="4"/></g><path d="M50 72q4 5 8 0" fill="none" stroke="#63806e" stroke-width="2.5" stroke-linecap="round"/><circle cx="34" cy="72" r="4" fill="${accent}" opacity=".8"/><circle cx="74" cy="72" r="4" fill="${accent}" opacity=".8"/><path d="M31 87Q55 75 79 87L76 101Q56 113 36 101Z" fill="${wornOutfit?.color || '#f3dfb1'}" stroke="#638f76" stroke-width="2"/><text x="55" y="98" text-anchor="middle" font-size="13">${wornOutfit?.icon || '✦'}</text><text x="83" y="45" text-anchor="middle" font-size="16">${wornAccessory?.icon || dailyAppearance?.accessory || ''}</text></svg>`;
+  pet.innerHTML = companionAvatarSvg(companionAnimal, 'heart-sprout');
   const name = '心伴芽';
   document.getElementById('petName').textContent = name;
-  const mini = document.querySelector('.chat-head .petmini'); if (mini) mini.textContent = companionFace();
+  const mini = document.querySelector('.chat-head .petmini'); if (mini) mini.innerHTML = companionAvatarSvg(companionAnimal, 'chat-avatar');
   const title = document.querySelector('.chat-head b'); if (title) title.textContent = `和${name}聊聊`;
-  document.querySelectorAll('#messages .tiny').forEach(node => { node.textContent = companionFace(); });
+  document.querySelectorAll('#messages .tiny').forEach(node => { node.innerHTML = companionAvatarSvg(companionAnimal, 'chat-avatar'); });
   const desc = document.getElementById('companionDescription'); if (desc) desc.textContent = '每完成 5 次心理练习，可以选择一件新装扮；完成 20 次可解锁成长服装。外观不会根据心情好坏变化。';
   renderCompanionProgress();
 }
 function ensureCompanionSetup() {
   const tabs = document.querySelector('.pet-card .pet-tabs'); if (!tabs || document.getElementById('companionSetup')) return;
   const panel = document.createElement('div'); panel.id = 'companionSetup'; panel.className = 'companion-setup';
-  panel.innerHTML = `<label for="companionAnimal">选择心伴芽的形象</label><select id="companionAnimal"><option value="abstract">心伴芽（默认）</option><option value="cat">芽芽猫</option><option value="rabbit">芽芽兔</option><option value="fox">芽芽狐</option><option value="bear">芽芽熊</option><option value="dog">芽芽狗</option></select><div id="companionDescription"></div>`;
+  panel.innerHTML = `<label for="companionAnimal">选择心伴芽的形象</label><select id="companionAnimal"><option value="abstract">心伴芽（默认）</option><option value="cat">芽芽猫</option><option value="rabbit">芽芽兔</option><option value="fox">芽芽狐</option><option value="bear">芽芽熊</option></select><div id="companionDescription"></div>`;
   tabs.before(panel);
   const picker = document.getElementById('companionAnimal'); picker.value = companionAnimal;
   picker.onchange = () => { companionAnimal = picker.value; localStorage.setItem(`xinban.companion.animal.${profileKey}`, companionAnimal); dailyAppearance = null; renderCompanion(); refreshDailyAppearance(); };
@@ -570,10 +575,60 @@ async function refreshDailyAppearance() {
 function ensureMemoryDisclosure() {
   const head = document.querySelector('#studentApp .chat-head'); if (!head || document.getElementById('memoryDisclosure')) return;
   const note = document.createElement('div'); note.id = 'memoryDisclosure'; note.className = 'memory-disclosure';
-  note.innerHTML = '<span>自主聊天默认不展示给老师。聊天内容会保存在本机演示数据库，并发送给 TokenDance 服务用于回复和后续对话；心伴外观每天只参考你聊到的兴趣与练习，不判断你的心情。请勿输入真实姓名或联系方式。</span><button class="btn small" onclick="clearPrivateMemory()">清除记忆</button>';
+  note.innerHTML = '<span>自主聊天默认不展示给老师，请勿输入真实姓名或联系方式。可点击分享聊天记录分享给老师一起交流。</span><button class="btn small primary" onclick="openChatShare()">分享聊天记录</button>';
   head.after(note);
 }
 ensureMemoryDisclosure();
+
+function formatChatDay(value) {
+  const date = new Date(value || Date.now());
+  return Number.isNaN(date.getTime()) ? '日期未知' : new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+window.openChatShare = async function () {
+  try {
+    const query = new URLSearchParams({ studentId: memoryStudentId, conversationId: privateConversationId });
+    const response = await fetch(`/api/student/memory?${query}`); const data = await response.json();
+    if (response.ok && Array.isArray(data.messages)) privateMessages = data.messages;
+  } catch {}
+  if (!privateMessages.length) return toast('这段自主聊天里还没有可分享的消息。');
+  let modal = document.getElementById('chatShareModal');
+  if (!modal) {
+    modal = document.createElement('div'); modal.id = 'chatShareModal'; modal.className = 'modalback';
+    modal.innerHTML = '<section class="modal chat-share-modal"><div class="modalhead"><div><h2>选择要分享的聊天</h2><p class="collection-intro">只会分享你勾选的内容；未选择的聊天仍对老师隐藏。</p></div><button class="close" onclick="closeChatShare()">×</button></div><div class="chat-share-controls"><label>按日期筛选<select id="shareDateFilter"></select></label><button class="btn small" onclick="toggleShareVisible(true)">全选当前列表</button><button class="btn small" onclick="toggleShareVisible(false)">取消全选</button></div><div id="shareMessageList" class="share-message-list"></div><div class="modal-actions"><button class="btn" onclick="closeChatShare()">取消</button><button class="btn primary" onclick="shareSelectedChat()">分享已选内容</button></div></section>';
+    document.body.append(modal);
+    modal.querySelector('#shareDateFilter').onchange = renderShareMessages;
+  }
+  const dates = [...new Set(privateMessages.map(item => formatChatDay(item.createdAt)))];
+  const select = modal.querySelector('#shareDateFilter');
+  select.innerHTML = '<option value="all">全部日期</option>' + dates.map(day => `<option value="${escapeHtml(day)}">${escapeHtml(day)}</option>`).join('');
+  renderShareMessages(); modal.classList.add('show');
+};
+function renderShareMessages() {
+  const modal = document.getElementById('chatShareModal'); if (!modal) return;
+  const date = modal.querySelector('#shareDateFilter').value || 'all', list = modal.querySelector('#shareMessageList'); list.replaceChildren();
+  privateMessages.forEach((item, index) => {
+    if (date !== 'all' && formatChatDay(item.createdAt) !== date) return;
+    const label = document.createElement('label'); label.className = 'share-message-row';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.dataset.messageIndex = String(index);
+    const body = document.createElement('span'), who = document.createElement('b'), textNode = document.createElement('span'), time = document.createElement('small');
+    who.textContent = item.role === 'user' ? '我' : '心伴'; textNode.textContent = item.content || ''; time.textContent = `${formatChatDay(item.createdAt)} ${new Date(item.createdAt || Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+    body.append(who, textNode, time); label.append(checkbox, body); list.append(label);
+  });
+}
+window.toggleShareVisible = function (checked) { document.querySelectorAll('#shareMessageList input[type="checkbox"]').forEach(input => { input.checked = checked; }); };
+window.closeChatShare = function () { document.getElementById('chatShareModal')?.classList.remove('show'); };
+window.shareSelectedChat = async function () {
+  const indexes = [...document.querySelectorAll('#shareMessageList input:checked')].map(input => Number(input.dataset.messageIndex));
+  if (!indexes.length) return toast('请先选择一条或多条聊天记录。');
+  const selected = indexes.map(index => privateMessages[index]).filter(Boolean);
+  const text = `心伴自主聊天记录（由学生选择分享）\n\n${selected.map(item => `[${formatChatDay(item.createdAt)} ${new Date(item.createdAt || Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}] ${item.role === 'user' ? '我' : '心伴'}：${item.content}`).join('\n\n')}`;
+  try {
+    if (navigator.share) await navigator.share({ title: '分享给老师的聊天记录', text });
+    else if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); toast('已复制所选记录，请粘贴发送给老师。'); }
+    else { window.prompt('复制下面内容并发送给老师：', text); }
+    closeChatShare();
+  } catch (error) { if (error.name !== 'AbortError') toast('分享未完成，请重试或复制后发送。'); }
+};
 
 window.joinClassTask = async function () {
   const code = document.getElementById('taskCodeInput').value.trim().toUpperCase();
@@ -872,7 +927,8 @@ async function restorePrivateConversation() {
   try {
     const query = new URLSearchParams({ studentId: memoryStudentId, conversationId: privateConversationId });
     const response = await fetch(`/api/student/memory?${query}`); const data = await response.json();
-    if (!response.ok || !data.messages?.length) return;
+    if (!response.ok || !data.messages?.length) { privateMessages = []; return; }
+    privateMessages = data.messages;
     const messages = document.getElementById('messages'); messages.replaceChildren();
     data.messages.forEach(item => addChatMessage(item.role === 'user' ? 'user' : 'assistant', item.content));
   } catch { /* Keep the welcome messages if local memory cannot be loaded. */ }
@@ -892,7 +948,7 @@ window.clearPrivateMemory = async function () {
   } catch (error) { toast(error.message || '操作失败，请稍后重试。'); }
 };
 const memoryStyle = document.createElement('style');
-memoryStyle.textContent = `.memory-disclosure{display:flex;align-items:center;gap:10px;padding:9px 14px;background:#fff9eb;border-bottom:1px solid #f0e6ce;color:#8a754c;font-size:10px;line-height:1.5}.memory-disclosure span{flex:1}.memory-disclosure .btn{flex:none;white-space:nowrap}`;
+memoryStyle.textContent = `.memory-disclosure{display:flex;align-items:center;gap:10px;padding:9px 14px;background:#f7f8f3;border-bottom:1px solid #edf0e9;color:#718078;font-size:10px;line-height:1.55}.memory-disclosure span{flex:1}.memory-disclosure .btn{flex:none;white-space:nowrap}.chat-share-modal{width:min(760px,100%)}.chat-share-controls{display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin:8px 0 12px}.chat-share-controls label{font-size:11px;color:#718078;display:grid;gap:5px}.chat-share-controls select{min-width:160px;padding:8px 10px;border:1px solid #e1e9e2;border-radius:8px;background:white}.share-message-list{max-height:52vh;overflow:auto;border:1px solid #e9eee9;border-radius:12px;padding:4px 12px}.share-message-row{display:flex;align-items:flex-start;gap:10px;padding:12px 3px;border-bottom:1px solid #f0f2ef;cursor:pointer}.share-message-row:last-child{border-bottom:0}.share-message-row>input{margin:4px 0 0;accent-color:#326c5d}.share-message-row>span{display:grid;gap:4px;min-width:0}.share-message-row b{font-size:11px;color:#326c5d}.share-message-row span span{font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}.share-message-row small{font-size:10px;color:#94a098}.chat-avatar{width:32px;height:35px;display:block;flex:none}.chat-head .chat-avatar{width:45px;height:48px}.student-layout .heart-sprout{width:150px;height:164px}.msg .tiny{display:flex;align-items:center;justify-content:center;width:36px;height:38px;flex:none}.msg .tiny .chat-avatar{width:35px;height:38px}`;
 document.head.append(memoryStyle);
 // The role-specific entry page initializes a student's scoped memory after sign-in.
 
@@ -933,6 +989,7 @@ function applyAuthenticatedUser(user) {
   memoryStudentId = user.id;
   privateConversationId = getPersistentId(`xinban.private.conversation.${profileKey}`);
   companionAnimal = localStorage.getItem(`xinban.companion.animal.${profileKey}`) || 'abstract';
+  if (!animalOptions[companionAnimal]) companionAnimal = 'abstract';
   try { dailyAppearance = JSON.parse(localStorage.getItem(`xinban.companion.appearance.${profileKey}`) || 'null'); } catch { dailyAppearance = null; }
   const picker = document.getElementById('companionAnimal'); if (picker) picker.value = companionAnimal;
   renderCompanion();

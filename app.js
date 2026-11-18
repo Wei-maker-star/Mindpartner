@@ -197,11 +197,19 @@ const gamePlaybooks = {
 };
 
 function gameIdFor(game) { return `game-${games.findIndex(item => item.title === game.title)}`; }
+function setGameCatalogStatus(message, error = false) {
+  const filterBar = document.querySelector('#planner .filters'); if (!filterBar) return;
+  let status = document.getElementById('gameCatalogStatus');
+  if (!status) { status = document.createElement('p'); status.id = 'gameCatalogStatus'; status.style.cssText = 'margin:10px 0;color:#718078;font-size:12px'; filterBar.after(status); }
+  status.textContent = message; status.style.color = error ? '#a64032' : '#718078';
+}
 function renderGameCatalog(filter = 'all') {
   const grid = document.getElementById('gameGrid'); if (!grid) return;
   const selected = filter || 'all';
   grid.innerHTML = games.map((g, i) => ({ g, i })).filter(({ g }) => selected === 'all' || g.category === selected || g.tags.includes(selected)).map(({ g, i }) =>
     `<article class="game" data-game-id="${g.id || `legacy-${i}`}"><div class="gicon">${g.icon}</div><h3>${g.title}</h3><p>${g.desc}</p><div class="game-foot"><span class="pill">${g.category || g.tags[0]}</span><span style="font-size:10px;color:#8c9991">${g.people}</span></div><div class="game-action-row"><button class="btn small" onclick="editGame(${i})">预览 / 修改</button><button class="btn small" onclick="exportGamePpt('${g.id || `legacy-${i}`}')">导出 PPT</button><button class="btn small primary" onclick="publishGame(${i})">下发课堂</button></div><small class="game-risk">${g.risk}</small></article>`).join('');
+  const catalog = window.XINBAN_GAME_CATALOG;
+  if (Array.isArray(catalog) && catalog.length) setGameCatalogStatus(`游戏库共 ${catalog.length} 个 · 当前显示 ${grid.children.length} 个`);
 }
 window.renderGames = renderGameCatalog;
 const activeFilter = document.querySelector('.filters .filter.on[data-filter]')?.dataset.filter || 'all';
@@ -213,6 +221,9 @@ function makeGameSteps(game) {
   const wrap = { title: '收尾：带走一个小发现', prompt: '你愿意带走哪一个小发现或下一步？也可以选择先不回答。', type: 'choice', options: ['记住一个发现', '做一件小事', '找信任的人聊聊', '先到这里'] };
   const opening = { title: '先选一种参与方式', prompt: `这是「${game.title}」。${game.desc}你可以自己完成、和同伴一起，也可以旁观或跳过。`, type: 'choice', options: ['我想自己试试', '我想和同伴一起', '我先看看', '我想跳过'] };
   const debrief = { title: '回看过程', prompt: '有没有哪个部分让你想多看一眼？只分享自己愿意分享的内容。', type: 'text', placeholder: '可以写几个词，也可以留空。' };
+  if (game.id === 'story-cards') return [opening, { title: '故事树：星岛的选择', prompt: '跟着虚构角色“小芽”走进故事。每次选择都会长出不同枝条；没有标准答案，也不需要讲自己的经历。', type: 'storyTree', start: 'start', nodes: { start: { text: '小芽要参加星岛社团展示，彩排时突然忘了下一句。', options: [{ label: '先停一下，看看周围', next: 'pause' }, { label: '向搭档发出求助信号', next: 'ask' }, { label: '换一种方式继续展示', next: 'adapt' }] }, pause: { text: '小芽注意到脚下的蓝色地毯，慢慢呼了一口气。接下来想……', options: [{ label: '请搭档提示第一句话', next: 'support' }, { label: '先讲最熟悉的部分', next: 'adaptEnd' }] }, ask: { text: '搭档点点头，轻声说“我在这里”。小芽可以……', options: [{ label: '一起把展示拆成两小段', next: 'teamEnd' }, { label: '请老师帮忙调整顺序', next: 'helpEnd' }] }, adapt: { text: '小芽决定把展示改成一张图卡和一句介绍。', options: [{ label: '邀请搭档补充一个细节', next: 'teamEnd' }, { label: '先展示图卡，再慢慢说', next: 'adaptEnd' }] }, support: { text: '小芽收到提示后接上了熟悉的内容。结局：停一停、找支持和调整计划，都是可以尝试的办法。', end: true }, adaptEnd: { text: '小芽用自己舒服的节奏完成了开头。结局：改变路线也算前进。', end: true }, teamEnd: { text: '小芽和搭档分工完成展示。结局：合作可以把任务变小。', end: true }, helpEnd: { text: '老师帮忙重新安排展示顺序。结局：向可信任的人求助是一种选择。', end: true } } }, { title: '给角色选一份资源', prompt: '如果愿意，为故事里的小芽挑一份接下来能用上的支持。', type: 'choice', options: ['有人陪着练习', '一张提示卡', '休息几分钟', '换一种展示方法', '暂时不选择'] }, wrap];
+  if (game.id === 'story-chain-drawing') return [opening, { title: '合作画布接力', prompt: '小组轮流添加线条、图形或颜色，拼成一幅“我们一起创造的地方”。有橡皮、多种画笔颜色和 PNG 下载；不评价画得像不像。', type: 'collabCanvas' }, { title: '给画面接上故事', prompt: '每位同伴可以说一句虚构故事，也可以只给画面起个名字。', type: 'turns' }, wrap];
+  if (game.id === 'emotion-auction') return [opening, { title: '领取十枚星点', prompt: '小组共同使用 10 枚虚拟星点。拍卖的是故事角色可以获得的支持资源，不是情绪、隐私或同学。可以自由分配，也可以留一些不花。', type: 'auctionAnimated', options: ['被认真倾听', '休息和空间', '一点勇气', '可靠的帮助', '表达自己的选择'] }, { title: '拍卖后聊一聊', prompt: '看看小组把星点放在哪里。不同选择都可以；愿意的话，分享你最想让角色先得到哪一种支持。', type: 'text', placeholder: '可以只写一个资源，也可以跳过。' }, wrap];
   if (game.type === 'drawing') return [opening, { title: `创作：${game.title}`, prompt: `用画布画出你的想法。可以用颜色、形状和线条，不需要画得像；你可以随时清空、下载图片或跳过。`, type: 'draw' }, { ...debrief, title: '给作品一个名字', prompt: '如果愿意，为作品取个名字，或者写下一句你想记住的话。' }, wrap];
   if (game.type === 'mindful') return [opening, { title: '短暂体验', prompt: `${game.desc}保持舒服的节奏，不适时可以停止。`, type: 'timer', seconds: 25 }, { title: '注意当下', prompt: '现在你注意到什么变化？没有变化也完全可以。', type: 'choice', options: ['感觉差不多', '稍微安静一点', '我注意到周围的事物', '我不确定', '想结束练习'] }, wrap];
   if (game.type === 'story') {
@@ -228,8 +239,9 @@ function makeGameSteps(game) {
 }
 async function loadCompleteGameCatalog() {
   try {
-    const response = await fetch('/data/game-catalog.json'); if (!response.ok) return;
+    const response = await fetch('/data/game-catalog.json'); if (!response.ok) throw new Error(`HTTP ${response.status}`);
     fullGameCatalog = await response.json();
+    if (!Array.isArray(fullGameCatalog) || !fullGameCatalog.length) throw new Error('目录为空或格式不正确');
     window.XINBAN_GAME_CATALOG = fullGameCatalog;
     for (const game of fullGameCatalog) { game.steps = makeGameSteps(game); games.push(game); gamePlaybooks[game.title] = game.steps; }
     const filterBar = document.querySelector('#planner .filters');
@@ -242,7 +254,7 @@ async function loadCompleteGameCatalog() {
       filterBar.append(search);
     }
     renderGameCatalog('all');
-  } catch { /* The original starter games remain available if the catalog cannot load. */ }
+  } catch (error) { setGameCatalogStatus(`完整游戏库加载失败（${error.message || '网络错误'}）。当前只显示内置示例。请确认 Render 部署目录包含 data/game-catalog.json。`, true); }
 }
 loadCompleteGameCatalog();
 
@@ -252,14 +264,15 @@ function createDrawingBoard(host, onChange = () => {}) {
   const wrap = document.createElement('div'); wrap.className = 'drawing-board';
   const canvas = document.createElement('canvas'); canvas.width = 900; canvas.height = 520; canvas.setAttribute('aria-label', '可自由绘画的画布');
   const tools = document.createElement('div'); tools.className = 'drawing-tools';
-  const colors = ['#326c5d', '#e67c65', '#e5b94e', '#718ac7', '#9b78b5', '#283b34']; let color = colors[0], drawing = false, previous = null;
-  colors.forEach(value => { const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'draw-color'; chip.style.background = value; chip.setAttribute('aria-label', `选择颜色 ${value}`); chip.onclick = () => { color = value; tools.querySelectorAll('.draw-color').forEach(item => item.classList.toggle('active', item === chip)); }; tools.append(chip); });
+  const colors = ['#326c5d', '#e67c65', '#e5b94e', '#718ac7', '#9b78b5', '#283b34', '#55a6aa', '#f08aad', '#ff9f43']; let color = colors[0], drawing = false, previous = null, erasing = false;
+  colors.forEach(value => { const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'draw-color'; chip.style.background = value; chip.setAttribute('aria-label', `选择颜色 ${value}`); chip.onclick = () => { color = value; erasing = false; tools.querySelectorAll('.draw-color').forEach(item => item.classList.toggle('active', item === chip)); eraser.classList.remove('active'); }; tools.append(chip); });
+  const eraser = document.createElement('button'); eraser.type = 'button'; eraser.className = 'btn small'; eraser.textContent = '橡皮擦'; eraser.onclick = () => { erasing = !erasing; eraser.classList.toggle('active', erasing); tools.querySelectorAll('.draw-color').forEach(item => item.classList.remove('active')); };
   const clear = document.createElement('button'); clear.className = 'btn small'; clear.textContent = '清空'; clear.onclick = () => { canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height); onChange(canvas); };
   const download = document.createElement('button'); download.className = 'btn small'; download.textContent = '下载 PNG'; download.onclick = () => { const link = document.createElement('a'); link.download = '心伴芽-我的画作.png'; link.href = canvas.toDataURL('image/png'); link.click(); };
-  tools.append(clear, download); wrap.append(canvas, tools); host.append(wrap);
+  tools.append(eraser, clear, download); wrap.append(canvas, tools); host.append(wrap);
   const point = event => { const rect = canvas.getBoundingClientRect(); return { x: (event.clientX - rect.left) * canvas.width / rect.width, y: (event.clientY - rect.top) * canvas.height / rect.height }; };
   canvas.onpointerdown = event => { drawing = true; previous = point(event); canvas.setPointerCapture(event.pointerId); };
-  canvas.onpointermove = event => { if (!drawing) return; const next = point(event), ctx = canvas.getContext('2d'); ctx.strokeStyle = color; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(previous.x, previous.y); ctx.lineTo(next.x, next.y); ctx.stroke(); previous = next; };
+  canvas.onpointermove = event => { if (!drawing) return; const next = point(event), ctx = canvas.getContext('2d'); ctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over'; ctx.strokeStyle = color; ctx.lineWidth = erasing ? 30 : 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(previous.x, previous.y); ctx.lineTo(next.x, next.y); ctx.stroke(); previous = next; };
   canvas.onpointerup = () => { drawing = false; previous = null; onChange(canvas); };
   canvas.onpointercancel = () => { drawing = false; previous = null; };
   return canvas;
@@ -268,18 +281,23 @@ function ensureGameEditor() {
   let back = document.getElementById('gameEditorBack'); if (back) return back;
   back = document.createElement('div'); back.id = 'gameEditorBack'; back.className = 'game-editor-back';
   back.innerHTML = `<section class="game-editor-modal"><header class="game-editor-head"><div><small>互动预览 · AI 协作改编</small><h2 id="gameEditorTitle"></h2></div><button class="btn" onclick="closeGameEditor()">关闭 ×</button></header><div class="game-editor-grid"><section class="game-preview-pane"><div><b>学生游戏预览</b><div id="gameEditorMeta" class="game-preview-meta"></div></div><div class="game-preview-card"><div id="gamePreviewStep"></div></div><div class="game-preview-controls"><button id="gamePreviewPrev" class="btn" onclick="moveGamePreview(-1)">上一步</button><span id="gamePreviewCount" class="game-preview-step"></span><button id="gamePreviewNext" class="btn primary" onclick="moveGamePreview(1)">下一步</button></div></section><section class="game-agent-pane"><div class="game-agent-intro"><b>游戏改编 Agent</b><br>描述你想调整的规则、提问、对象或活动风格。右侧对话和左侧预览分开显示。</div><div id="gameAgentMessages" class="game-agent-messages"></div><div class="game-agent-compose"><textarea id="gameEditInput" placeholder="例如：改成两人互相倾听的版本，把书写步骤换成可选卡片，不要求分享隐私。" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGameEditChat()}"></textarea><button id="gameEditSend" class="btn primary" onclick="sendGameEditChat()">发送 ↑</button></div></section></div><footer class="game-editor-footer"><button class="btn" onclick="closeGameEditor()">关闭</button><button id="editorPptButton" class="btn" onclick="exportEditedGamePpt()">导出此游戏 PPT</button><button class="btn" onclick="publishEditedGame()">下发课堂</button><button class="btn primary" onclick="saveEditedGame()">保存到我的游戏</button></footer></section>`;
+  const research = document.createElement('details'); research.className = 'game-research-box';
+  research.innerHTML = '<summary>🔎 搜索游戏设计参考</summary><div class="game-research-controls"><input id="gameResearchQuery" placeholder="例如：情绪调节 小组合作游戏"><button class="btn small" type="button" id="gameResearchSearch">搜索</button><button class="btn small primary" type="button" id="gameResearchApply" disabled>把已选资料加入改编</button></div><p class="game-research-privacy">仅搜索游戏设计资料；请勿输入学生姓名、聊天内容或可识别个人的信息。</p><div id="gameResearchResults"></div>';
+  back.querySelector('.game-agent-intro').after(research);
+  research.querySelector('#gameResearchSearch').onclick = window.searchGameResearch;
+  research.querySelector('#gameResearchApply').onclick = window.applyGameResearch;
   document.body.append(back); return back;
 }
 window.editGame = function (index, savedGame = null, resource = null, usageSummary = null) {
   const source = savedGame || games[index]; if (!source) return;
   document.getElementById('modalback')?.classList.remove('show');
   const book = savedGame?.steps || source.steps || gamePlaybooks[source.title] || Object.values(gamePlaybooks)[index] || [];
-  const steps = book.length ? book.map((step, stepIndex) => ({ ...step, title: step.title || `第 ${stepIndex + 1} 步`, prompt: step.prompt || '选择一个适合自己的方式完成这一步。', type: ['text', 'timer', 'draw'].includes(step.type) ? step.type : 'choice', seconds: step.seconds || 20, options: step.options || [] })) : [
+  const steps = book.length ? book.map((step, stepIndex) => ({ ...step, title: step.title || `第 ${stepIndex + 1} 步`, prompt: step.prompt || '选择一个适合自己的方式完成这一步。', type: ['choice','text','timer','draw','turns','auction','storyTree','collabCanvas','auctionAnimated'].includes(step.type) ? step.type : 'choice', seconds: step.seconds || 20, options: step.options || [] })) : [
     { title: '选择参与方式', prompt: '你可以自己完成，也可以和同伴一起。愿意时再开始。', type: 'choice', options: ['我想试试', '我先看看', '和同伴一起'] },
     { title: '探索一个小问题', prompt: '想一想这项活动对你有什么帮助。可以写下来，也可以跳过。', type: 'text', options: [] },
     { title: '选一个小行动', prompt: '选一件轻松、可实现的小事，为活动收尾。', type: 'choice', options: ['先休息一下', '找人聊聊', '做一件小事'] }
   ];
-  gameEditorState = { game: { ...source, title: source.title, goal: source.goal || source.desc || '', people: source.people || '学生个人或小组', risk: source.risk || '教师带领', steps }, history: [], revisions: Array.isArray(source.revisionHistory) ? source.revisionHistory : [], usageSummary, previewIndex: 0, answers: {}, resourceId: resource?.id || null };
+  gameEditorState = { game: { ...source, title: source.title, goal: source.goal || source.desc || '', people: source.people || '学生个人或小组', risk: source.risk || '教师带领', steps }, history: [], revisions: Array.isArray(source.revisionHistory) ? source.revisionHistory : [], usageSummary, previewIndex: 0, answers: {}, researchResults: [], resourceId: resource?.id || null };
   const back = ensureGameEditor(); back.classList.add('show');
   document.getElementById('gameAgentMessages').replaceChildren();
   appendGameAgentMessage('assistant', '可以直接告诉我希望如何修改。修改后左侧会更新，你可以逐步点击选项和输入内容预览游戏。');
@@ -287,6 +305,34 @@ window.editGame = function (index, savedGame = null, resource = null, usageSumma
   renderGamePreview(); document.getElementById('gameEditInput').focus();
 };
 window.closeGameEditor = function () { if (gamePreviewTimer) clearInterval(gamePreviewTimer); document.getElementById('gameEditorBack')?.classList.remove('show'); };
+window.searchGameResearch = async function () {
+  const input = document.getElementById('gameResearchQuery'), results = document.getElementById('gameResearchResults'), button = document.getElementById('gameResearchSearch');
+  const query = input?.value.trim(); if (!query) return toast('先输入一个游戏主题或活动形式');
+  button.disabled = true; button.textContent = '搜索中…'; results.textContent = '正在查找公开资料…';
+  try {
+    const response = await fetch('/api/teacher/game-research', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '搜索失败');
+    gameEditorState.researchResults = data.results || []; results.replaceChildren();
+    if (!data.results?.length) results.textContent = '暂未找到结果。可以换一个关键词。';
+    data.results?.forEach((item, index) => {
+      const label = document.createElement('label'); label.className = 'game-research-result';
+      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.value = String(index);
+      const detail = document.createElement('span'); const title = document.createElement('b'); title.textContent = item.title; const snippet = document.createElement('small'); snippet.textContent = item.snippet; const link = document.createElement('a'); link.href = item.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = '查看来源';
+      detail.append(title, snippet, link); label.append(checkbox, detail); results.append(label);
+    });
+    document.getElementById('gameResearchApply').disabled = !data.results?.length;
+  } catch (error) { results.textContent = error.message || '搜索失败'; }
+  finally { button.disabled = false; button.textContent = '搜索'; }
+};
+window.applyGameResearch = function () {
+  const selected = [...document.querySelectorAll('#gameResearchResults input:checked')].map(input => gameEditorState?.researchResults[Number(input.value)]).filter(Boolean).slice(0, 3);
+  if (!selected.length) return toast('请选择至少一条参考资料');
+  const sourceText = selected.map(item => `- ${item.title}: ${item.snippet.slice(0, 240)}（来源：${item.url}）`).join('\n');
+  const input = document.getElementById('gameEditInput');
+  input.value = `${input.value.trim()}\n\n请参考以下公开资料补充游戏机制，不要照抄内容，并在修改说明中保留来源链接：\n${sourceText}`.trim();
+  gameEditorState.game.sources = [...(gameEditorState.game.sources || []), ...selected.map(({ title, url }) => ({ title, url }))].slice(-8);
+  input.focus(); toast(`已加入 ${selected.length} 条资料；检查改编要求后发送给 Agent`);
+};
 window.exportEditedGamePpt = function () { if (gameEditorState?.game) window.exportGamePpt?.(gameEditorState.game); };
 window.publishEditedGame = async function () {
   const game = gameEditorState?.game; if (!game) return;
@@ -309,7 +355,50 @@ function renderGamePreview() {
   const heading = document.createElement('h3'); heading.textContent = step.title;
   const prompt = document.createElement('p'); prompt.textContent = step.prompt;
   view.append(heading, prompt);
-  if (step.type === 'text') {
+  if (step.type === 'storyTree') {
+    const tree = document.createElement('div'); tree.className = 'story-tree';
+    const path = [], nodeBox = document.createElement('div'); nodeBox.className = 'story-tree-node'; tree.append(nodeBox); view.append(tree);
+    const paintNode = nodeId => {
+      const node = step.nodes?.[nodeId]; if (!node) return;
+      nodeBox.replaceChildren();
+      path.push(node.text); answers[previewIndex] = path.join(' → ');
+      const story = document.createElement('p'); story.className = 'story-tree-text'; story.textContent = node.text; nodeBox.append(story);
+      if (node.end) { const ending = document.createElement('span'); ending.className = 'story-tree-ending'; ending.textContent = '故事结局'; nodeBox.append(ending); return; }
+      const choices = document.createElement('div'); choices.className = 'story-tree-choices';
+      (node.options || []).forEach(option => { const button = document.createElement('button'); button.className = 'game-choice'; button.textContent = option.label; button.onclick = () => { answers[previewIndex] = [...(answers[previewIndex] ? [answers[previewIndex]] : []), option.label].join(' → '); const chip = document.createElement('span'); chip.className = 'story-tree-branch'; chip.textContent = `↳ ${option.label}`; tree.insertBefore(chip, nodeBox); paintNode(option.next); }; choices.append(button); });
+      nodeBox.append(choices);
+    };
+    paintNode(step.start || 'start');
+  } else if (step.type === 'collabCanvas') {
+    const counter = document.createElement('div'); counter.className = 'canvas-turn'; let turn = 1;
+    counter.innerHTML = `<b>第 <span>${turn}</span> 棒</b><span>每人添加一笔后，把设备传给下一位</span>`;
+    const canvas = createDrawingBoard(view, currentCanvas => { gameEditorState.answers[previewIndex] = currentCanvas.toDataURL('image/jpeg', .65); });
+    const nextTurn = document.createElement('button'); nextTurn.className = 'btn small'; nextTurn.textContent = '交给下一位 →'; nextTurn.onclick = () => { turn += 1; counter.querySelector('b span').textContent = turn; answers[previewIndex] = `完成了 ${turn} 棒接力`; nextTurn.classList.remove('turn-pop'); void nextTurn.offsetWidth; nextTurn.classList.add('turn-pop'); };
+    counter.append(nextTurn); view.insertBefore(counter, canvas.parentElement);
+  } else if (step.type === 'auctionAnimated') {
+    const board = document.createElement('div'); board.className = 'auction-board auction-live';
+    let remaining = 10; const allocation = new Map((step.options || []).map(item => [item, 0]));
+    const wallet = document.createElement('div'); wallet.className = 'auction-wallet'; wallet.innerHTML = `<span>星点余额</span><b>10</b><div class="auction-coins">${Array.from({ length: 10 }, () => '<i>✦</i>').join('')}</div>`; board.append(wallet);
+    const resources = document.createElement('div'); resources.className = 'auction-resources';
+    const balance = wallet.querySelector('b'), coins = wallet.querySelector('.auction-coins');
+    const cards = new Map();
+    const renderAuction = () => { const used = [...allocation.values()].reduce((sum, value) => sum + value, 0); remaining = 10 - used; balance.textContent = String(remaining); [...coins.children].forEach((coin, index) => coin.classList.toggle('spent', index >= remaining)); answers[previewIndex] = [...allocation].filter(([, count]) => count).map(([name, count]) => `${name} ${count} 枚`).join('；'); };
+    (step.options || []).forEach((name, index) => {
+      const card = document.createElement('article'); card.className = 'auction-resource'; card.style.setProperty('--resource-hue', `${index * 55 + 110}deg`);
+      const title = document.createElement('b'); title.textContent = name; const controls = document.createElement('div'); controls.className = 'auction-bid-controls';
+      const value = document.createElement('span'); value.className = 'auction-bid-count'; value.textContent = '0';
+      const minus = document.createElement('button'); minus.type = 'button'; minus.textContent = '−'; minus.setAttribute('aria-label', `减少${name}星点`);
+      const plus = document.createElement('button'); plus.type = 'button'; plus.textContent = '＋'; plus.setAttribute('aria-label', `增加${name}星点`);
+      minus.onclick = () => { const next = Math.max(0, allocation.get(name) - 1); allocation.set(name, next); value.textContent = next; card.classList.add('bid-pop'); setTimeout(() => card.classList.remove('bid-pop'), 350); renderAuction(); };
+      plus.onclick = () => { if (!remaining) return; const next = allocation.get(name) + 1; allocation.set(name, next); value.textContent = next; card.classList.remove('bid-pop'); void card.offsetWidth; card.classList.add('bid-pop'); renderAuction(); };
+      controls.append(minus, value, plus); card.append(title, controls); resources.append(card); cards.set(name, card);
+    });
+    board.append(resources);
+    const closeHammer = document.createElement('button'); closeHammer.className = 'btn primary auction-hammer'; closeHammer.innerHTML = '🔨 敲槌结拍';
+    const reveal = document.createElement('p'); reveal.className = 'auction-reveal'; reveal.hidden = true;
+    closeHammer.onclick = () => { if (![...allocation.values()].some(Boolean)) { toast('先把至少一枚星点放到一项支持上'); return; } reveal.hidden = false; reveal.innerHTML = `本轮拍卖完成 ✨<br><b>${[...allocation].filter(([, count]) => count).map(([name, count]) => `${escapeHtml(name)} ${count}枚`).join(' · ')}</b>`; board.classList.add('auction-closed'); closeHammer.disabled = true; };
+    board.append(closeHammer, reveal); view.append(board); renderAuction();
+  } else if (step.type === 'text') {
     const field = document.createElement('textarea'); field.className = 'game-preview-input'; field.placeholder = '写下愿意记录的内容，也可以留空或跳过'; field.value = answers[previewIndex] || ''; field.oninput = () => { answers[previewIndex] = field.value; }; view.append(field);
   } else if (step.type === 'draw') {
     const canvas = createDrawingBoard(view, currentCanvas => { gameEditorState.answers[previewIndex] = currentCanvas.toDataURL('image/jpeg', .65); });
@@ -551,7 +640,40 @@ function renderGameStep() {
   const view = document.getElementById('gameStepView');
   view.replaceChildren();
   const prompt = document.createElement('p'); prompt.className = 'game-step-prompt'; prompt.textContent = step.prompt; view.append(prompt);
-  if (step.type === 'text') {
+  if (step.type === 'storyTree') {
+    const tree = document.createElement('div'); tree.className = 'story-tree'; const card = document.createElement('div'); card.className = 'story-tree-node'; const path = []; tree.append(card); view.append(tree);
+    const paint = id => { const node = step.nodes?.[id]; if (!node) return; card.replaceChildren(); path.push(node.text); session.current.reflection = path.join(' → '); const story = document.createElement('p'); story.className = 'story-tree-text'; story.textContent = node.text; card.append(story); if (node.end) { const ending = document.createElement('span'); ending.className = 'story-tree-ending'; ending.textContent = '故事结局'; card.append(ending); return; } const choices = document.createElement('div'); choices.className = 'story-tree-choices'; (node.options || []).forEach(option => { const button = document.createElement('button'); button.className = 'game-choice'; button.textContent = option.label; button.onclick = () => { session.current.choice = [...(session.current.choice ? [session.current.choice] : []), option.label].join(' → '); const branch = document.createElement('span'); branch.className = 'story-tree-branch'; branch.textContent = `↳ ${option.label}`; tree.insertBefore(branch, card); paint(option.next); }; choices.append(button); }); card.append(choices); };
+    paint(step.start || 'start');
+  } else if (step.type === 'collabCanvas') {
+    const counter = document.createElement('div'); counter.className = 'canvas-turn'; let turn = 1;
+    counter.innerHTML = `<b>第 <span>${turn}</span> 棒</b><span>每人添加一笔后，把设备传给下一位</span>`;
+    const canvas = createDrawingBoard(view, currentCanvas => { session.current.drawingData = currentCanvas.toDataURL('image/jpeg', .62); session.current.choice = '小组合作完成画布'; });
+    const nextTurn = document.createElement('button'); nextTurn.className = 'btn small'; nextTurn.textContent = '交给下一位 →'; nextTurn.onclick = () => { turn += 1; counter.querySelector('b span').textContent = turn; session.current.reflection = `完成了 ${turn} 棒接力`; nextTurn.classList.remove('turn-pop'); void nextTurn.offsetWidth; nextTurn.classList.add('turn-pop'); };
+    counter.append(nextTurn); view.insertBefore(counter, canvas.parentElement);
+  } else if (step.type === 'auctionAnimated') {
+    const board = document.createElement('div'); board.className = 'auction-board auction-live'; let remaining = 10;
+    const allocation = new Map((step.options || []).map(item => [item, 0]));
+    const wallet = document.createElement('div'); wallet.className = 'auction-wallet'; wallet.innerHTML = `<span>星点余额</span><b>10</b><div class="auction-coins">${Array.from({ length: 10 }, () => '<i>✦</i>').join('')}</div>`;
+    const balance = wallet.querySelector('b'), coins = wallet.querySelector('.auction-coins'); board.append(wallet);
+    const resources = document.createElement('div'); resources.className = 'auction-resources';
+    const updateAuction = () => { const spent = [...allocation.values()].reduce((sum, value) => sum + value, 0); remaining = 10 - spent; balance.textContent = String(remaining); [...coins.children].forEach((coin, index) => coin.classList.toggle('spent', index >= remaining)); session.current.choice = [...allocation].filter(([, count]) => count).map(([name, count]) => `${name} ${count} 枚`).join('；'); };
+    (step.options || []).forEach((name, index) => {
+      const card = document.createElement('article'); card.className = 'auction-resource'; card.style.setProperty('--resource-hue', `${index * 55 + 110}deg`);
+      const title = document.createElement('b'); title.textContent = name; const controls = document.createElement('div'); controls.className = 'auction-bid-controls';
+      const count = document.createElement('span'); count.className = 'auction-bid-count'; count.textContent = '0';
+      const minus = document.createElement('button'); minus.type = 'button'; minus.textContent = '−'; minus.setAttribute('aria-label', `减少${name}星点`);
+      const plus = document.createElement('button'); plus.type = 'button'; plus.textContent = '＋'; plus.setAttribute('aria-label', `增加${name}星点`);
+      minus.onclick = () => { const value = Math.max(0, allocation.get(name) - 1); allocation.set(name, value); count.textContent = value; card.classList.add('bid-pop'); setTimeout(() => card.classList.remove('bid-pop'), 350); updateAuction(); };
+      plus.onclick = () => { if (!remaining) return; const value = allocation.get(name) + 1; allocation.set(name, value); count.textContent = value; card.classList.remove('bid-pop'); void card.offsetWidth; card.classList.add('bid-pop'); updateAuction(); };
+      controls.append(minus, count, plus); card.append(title, controls); resources.append(card);
+    });
+    board.append(resources);
+    const hammer = document.createElement('button'); hammer.className = 'btn primary auction-hammer'; hammer.textContent = '🔨 敲槌结拍';
+    const reveal = document.createElement('p'); reveal.className = 'auction-reveal'; reveal.hidden = true;
+    hammer.onclick = () => { const chosen = [...allocation].filter(([, count]) => count); if (!chosen.length) return toast('先把至少一枚星点放到一项支持上'); reveal.hidden = false; reveal.innerHTML = `本轮拍卖完成 ✨<br><b>${chosen.map(([name, count]) => `${escapeHtml(name)} ${count}枚`).join(' · ')}</b>`; board.classList.add('auction-closed'); hammer.disabled = true; session.current.reflection = '小组敲槌完成资源分配'; };
+    board.append(hammer, reveal); view.append(board); updateAuction();
+  } else if (step.type === 'text') {
+  } else if (step.type === 'text') {
     const field = document.createElement('textarea'); field.className = 'game-reflection'; field.placeholder = step.placeholder || '写一点点就好……';
     field.oninput = () => { session.current.reflection = field.value; }; view.append(field);
   } else if (step.type === 'draw') {
@@ -586,7 +708,7 @@ function renderGameStep() {
     step.options.forEach(option => { const button = document.createElement('button'); button.className = 'game-choice'; button.textContent = option; button.onclick = () => { choices.querySelectorAll('.game-choice').forEach(x => x.classList.remove('selected')); button.classList.add('selected'); session.current.choice = option; }; choices.append(button); });
     view.append(choices);
   }
-  document.getElementById('nextGameStep').textContent = session.index === session.steps.length - 1 ? '完成并提交 ✓' : '下一步 →';
+  document.getElementById('nextGameStep').textContent = session.index === session.steps.length - 1 ? '完成游戏 ✓' : '下一步 →';
 }
 window.skipGameStep = async function () { if (window.gameSession) { const session = window.gameSession; session.current.skipped = true; session.current.seconds = Math.round((Date.now() - session.stepStarted) / 1000); session.actions.push(session.current); if (!session.privateMode && session.index < session.steps.length - 1) await saveClassGameProgress(); if (session.index < session.steps.length - 1) advanceGame(); else submitClassGame(); } };
 window.nextGameStep = async function () {
@@ -618,12 +740,29 @@ async function submitClassGame(safetyEscalation = false) {
       else if (progressData.error) toast(progressData.error);
     }
     if (session.privateMode && !session.practiceCounted) { const progressResponse = await fetch('/api/student/progress'); if (progressResponse.ok) { practiceProgress = await progressResponse.json(); session.practiceCounted = true; renderCompanion(); } }
-    document.getElementById('gameStepView').innerHTML = safetyEscalation ? '<div class="game-complete"><div>🤝</div><h3>活动已暂停</h3><p>课堂老师会看到需要及时查看的提示。请现在找一位信任的大人或学校心理老师陪着你；如果你或他人正处于立即危险中，请联系当地紧急服务。</p></div>' : `<div class="game-complete"><div>🌱</div><h3>活动完成，谢谢你的参与</h3><p>${session.privateMode ? '练习记录已保存在你的个人空间。' : '你的课堂活动记录已提交给老师。'}你可以关闭这个窗口，或回到心伴继续聊聊。</p></div>`;
+    document.getElementById('gameStepView').innerHTML = safetyEscalation ? '<div class="game-complete"><div>🤝</div><h3>活动已暂停</h3><p>课堂老师会看到需要及时查看的提示。请现在找一位信任的大人或学校心理老师陪着你；如果你或他人正处于立即危险中，请联系当地紧急服务。</p></div>' : `<div class="game-complete"><div>🌱</div><h3>活动完成，谢谢你的参与</h3><p>${session.privateMode ? '练习记录已保存在你的个人空间。' : '课堂活动记录已提交给老师。'}你可以选择把本次练习的选择和感受发给心伴，获得一条个性化的后续建议。跟进对话只保存在你的私密心伴记录里，老师看不到。</p></div>`;
     document.getElementById('gameProgressFill').style.width = '100%'; document.getElementById('gameStepLabel').textContent = '已完成'; document.getElementById('gameStepCount').textContent = '✓';
-    document.getElementById('gameChatArea').replaceChildren(); document.querySelector('.game-player-foot').innerHTML = '<button class="btn primary" onclick="closeGamePlayer()">完成</button>';
+    document.getElementById('gameChatArea').replaceChildren(); document.querySelector('.game-player-foot').innerHTML = safetyEscalation ? '<button class="btn primary" onclick="closeGamePlayer()">我会去找大人</button>' : '<button class="btn" onclick="closeGamePlayer()">稍后再说</button><button class="btn primary" onclick="sendGameFollowup()">完成并发送给心伴</button>';
     if (!session.privateMode) loadClassroomTasks();
   } catch (error) { toast(error.message || '提交失败，请重试'); button.disabled = false; button.textContent = '重试提交'; }
 }
+window.sendGameFollowup = async function () {
+  const session = window.gameSession; if (!session || session.followupSent) return;
+  const footer = document.querySelector('.game-player-foot'), buttons = [...footer.querySelectorAll('button')]; buttons.forEach(button => button.disabled = true);
+  const status = document.createElement('span'); status.className = 'followup-status'; status.textContent = '心伴正在根据本次活动整理回应…'; footer.prepend(status);
+  const answers = session.actions.map(action => ({ step: action.step, choice: action.choice, reflection: action.reflection, skipped: action.skipped, drawingCreated: Boolean(action.drawingData) })).map(item => JSON.stringify(item)).join('\n').slice(0, 1400);
+  const message = `我刚完成心理课堂小游戏「${session.task.title}」。这是我愿意分享给心伴的活动反馈：\n${answers || '我完成了活动，但没有留下文字选择。'}\n请像友善的同伴一样，先肯定我的参与，再结合我选择的内容给我一个温和、具体、可选的下一步小练习或问题。不要诊断、不要评价画作，也不要推断我没说过的感受。`;
+  try {
+    const response = await fetch('/api/student/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, studentId: memoryStudentId, conversationId: privateConversationId, scope: 'private', activityContext: { title: session.task.title, completed: true }, ...companionRequestContext() }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '暂时无法生成跟进');
+    session.followupSent = true; status.remove();
+    const area = document.getElementById('gameChatArea'); area.replaceChildren();
+    const label = document.createElement('p'); label.className = 'game-chat-reply'; label.textContent = `${companionProfile?.name || '心伴芽'}：${data.reply}`; area.append(label);
+    if (data.recommendation?.id) { const nextGame = document.createElement('button'); nextGame.className = 'btn small'; nextGame.textContent = `试试下一项练习：${data.recommendation.title}`; nextGame.onclick = () => { closeGamePlayer(); window.startRecommendedGame(data.recommendation.id); }; area.append(nextGame); }
+    const foot = document.createElement('p'); foot.className = 'followup-private-note'; foot.textContent = '这段跟进已保存在你的私密心伴记录中，老师看不到。'; area.append(foot);
+    footer.replaceChildren(); const close = document.createElement('button'); close.className = 'btn primary'; close.textContent = '完成'; close.onclick = closeGamePlayer; footer.append(close);
+  } catch (error) { status.textContent = error.message || '发送失败'; buttons.forEach(button => button.disabled = false); const retry = document.createElement('button'); retry.className = 'btn primary'; retry.textContent = '重试发送'; retry.onclick = window.sendGameFollowup; footer.append(retry); }
+};
 window.toggleGameChat = function () {
   const area = document.getElementById('gameChatArea');
   if (area.querySelector('.game-chat-form')) { area.querySelector('.game-chat-form').remove(); return; }
@@ -720,6 +859,7 @@ gameStyle.textContent = `.game-action-row{display:flex;gap:6px;align-items:cente
 document.head.append(gameStyle);
 const expandedGameStyle = document.createElement('style');
 expandedGameStyle.textContent = `.recommended-game-card{margin-top:12px;padding:12px;background:#fff;border:1px solid #dfe9e1;border-radius:12px}.recommended-game-card b{font-size:12px}.recommended-game-card p{font-size:11px;line-height:1.6;color:#718078;margin:6px 0 10px}.game-search{min-width:240px;flex:1;border:1px solid var(--line);border-radius:9px;padding:9px 12px}.game[hidden]{display:none}.game-risk{display:block;margin-top:8px;color:#8b968f;font-size:10px}.game-action-row{justify-content:flex-start}.drawing-board{width:100%;margin:12px 0}.drawing-board canvas{display:block;width:100%;height:clamp(210px,35vh,360px);background:#fff;border:1px solid #dfe8df;border-radius:12px;touch-action:none;cursor:crosshair}.drawing-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}.draw-color{width:24px;height:24px;border:2px solid white;box-shadow:0 0 0 1px #dce5dd;border-radius:50%}.draw-color.active{box-shadow:0 0 0 2px #326c5d}.drawing-tools .btn{margin-left:auto}.drawing-tools .btn+.btn{margin-left:0}.auction-board{display:grid;gap:8px}.auction-option{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8faf8;border-radius:9px;font-size:12px}.auction-option input{width:76px;padding:7px;border:1px solid #dfe8df;border-radius:7px}.auction-total{display:block;text-align:right;color:#326c5d;font-size:12px;padding-top:5px}.group-turns label{display:block;margin:8px 0 5px;color:#607269;font-size:11px}.group-turns .btn{margin:8px 0}.submitted-game-drawing{display:block;max-width:min(100%,500px);max-height:350px;object-fit:contain;border:1px solid #e3eae3;border-radius:10px;margin:6px 0 12px;background:#fff}@media(max-width:600px){.game-search{min-width:100%}.recommended-game-card{padding:10px}.drawing-board canvas{height:250px}}`;
+expandedGameStyle.textContent += `.game-research-box{padding:10px 12px;background:#fff;border:1px solid #e3ebe3;border-radius:12px}.game-research-box summary{cursor:pointer;font-size:12px;font-weight:700;color:#326c5d}.game-research-controls{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.game-research-controls input{flex:1;min-width:160px;padding:9px;border:1px solid #dfe8df;border-radius:8px}.game-research-privacy{font-size:10px;color:#829087}.game-research-result{display:flex;gap:8px;padding:9px 0;border-top:1px solid #eef1ee;font-size:11px}.game-research-result span{display:grid;gap:4px}.game-research-result small{color:#708078}.game-research-result a{font-size:10px;color:#326c5d}.story-tree-node{padding:14px;background:#f2f7f2;border:1px solid #dbe8db;border-radius:15px;box-shadow:0 4px 12px #253d2d10}.story-tree-text{margin:0 0 12px;line-height:1.7}.story-tree-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px}.story-tree-branch{display:block;width:max-content;max-width:100%;margin:6px auto;padding:5px 9px;border-radius:99px;background:#fff4dc;color:#806b34;font-size:11px}.story-tree-ending{display:inline-block;padding:6px 10px;background:#e6f2e8;border-radius:99px;color:#326c5d}.canvas-turn{display:flex;align-items:center;gap:12px;padding:10px 12px;background:#f1f6f1;border-radius:10px;color:#326c5d;font-size:12px}.canvas-turn>span{flex:1;color:#718078}.turn-pop{animation:turn-pop .35s ease}@keyframes turn-pop{50%{transform:scale(1.08)}}.auction-live{padding:12px;background:linear-gradient(145deg,#fffaf0,#f5f8f4);border:1px solid #f0e4c8;border-radius:16px}.auction-wallet{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:9px;padding:10px;background:#fff;border-radius:12px;color:#7f6c3a;font-size:12px}.auction-wallet b{font-size:21px;color:#326c5d}.auction-coins{display:flex;gap:5px;flex-wrap:wrap}.auction-coins i{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#f5d97a;color:#966c13;font-size:12px;font-style:normal;box-shadow:0 2px 0 #d9b44e}.auction-coins i.spent{opacity:.18;transform:scale(.85)}.auction-resources{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.auction-resource{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px;background:hsl(var(--resource-hue,130deg) 45% 96%);border:1px solid hsl(var(--resource-hue,130deg) 35% 87%);border-radius:12px;transition:transform .25s,box-shadow .25s}.auction-resource b{font-size:11px}.auction-bid-controls{display:flex;align-items:center;gap:7px}.auction-bid-controls button{width:30px;height:30px;border:0;border-radius:50%;background:#fff;color:#326c5d;font-size:17px;cursor:pointer;box-shadow:0 2px 7px #334b3518}.auction-bid-count{min-width:18px;text-align:center;font-weight:700;color:#326c5d}.bid-pop{animation:bid-pop .32s ease}@keyframes bid-pop{50%{transform:translateY(-4px) scale(1.04);box-shadow:0 7px 16px #d6b95b55}}.auction-hammer{justify-self:center;animation:hammer-wiggle 1.6s ease-in-out infinite}@keyframes hammer-wiggle{0%,84%,100%{transform:rotate(0)}88%{transform:rotate(-8deg)}94%{transform:rotate(7deg)}}.auction-closed .auction-resource{opacity:.68}.auction-reveal{padding:12px;text-align:center;background:#fff4d6;border-radius:12px;line-height:1.7;animation:bid-pop .35s}.auction-preview{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.followup-status,.followup-private-note{font-size:11px;color:#738078}.followup-private-note{margin:7px 0}@media(max-width:560px){.auction-wallet{grid-template-columns:auto auto}.auction-coins{grid-column:1/-1}.story-tree-choices{grid-template-columns:1fr}}`;
 document.head.append(expandedGameStyle);
 const consentStyle = document.createElement('style');
 consentStyle.textContent = `.joined-task .alias-input{display:block;width:140px;margin-top:5px;border:1px solid #e1e9e1;border-radius:7px;padding:6px 8px;font-size:10px}.player-consent{display:flex;flex-direction:column;gap:15px;max-width:520px;margin:25px auto}.consent-check{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.6;color:#596b61}.consent-check input{margin:2px 0 0}`;

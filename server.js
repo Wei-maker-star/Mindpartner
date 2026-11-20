@@ -179,7 +179,9 @@ async function askTokenDance(messages, maxTokens = 1600) {
     throw Object.assign(new Error('Configure TOKENDANCE_API_KEY and TOKENDANCE_MODEL in .env first.'), { status: 503 });
   }
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
+  // Long lesson plans and multi-part model replies can take several minutes.
+  // Keep a finite ceiling to avoid requests hanging forever on a stalled provider.
+  const timer = setTimeout(() => controller.abort(), 10 * 60_000);
   try {
     const output = [];
     let nextMessages = messages;
@@ -557,7 +559,7 @@ const server = http.createServer(async (req, res) => {
       const searchUrl = new URL('https://api.search.brave.com/res/v1/llm/context');
       searchUrl.searchParams.set('q', `${query} 蹇冪悊鏁欒偛 娓告垙 娲诲姩`); searchUrl.searchParams.set('maximum_number_of_tokens', '3500'); searchUrl.searchParams.set('safesearch', 'strict');
       searchUrl.searchParams.set('country', 'CN'); searchUrl.searchParams.set('search_lang', 'zh-hans'); searchUrl.searchParams.set('ui_lang', 'zh-CN');
-      const response = await fetch(searchUrl, { headers: { 'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY, accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
+      const response = await fetch(searchUrl, { headers: { 'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY, accept: 'application/json' }, signal: AbortSignal.timeout(10 * 60_000) });
       if (!response.ok) throw new Error(`鎼滅储鏈嶅姟杩斿洖 ${response.status}`);
       const data = await response.json();
       const results = (data.grounding?.generic || []).slice(0, 6).map(item => ({ title: text(item.title, 180), url: /^https?:\/\//.test(item.url || '') ? item.url : '', snippet: text(Array.isArray(item.snippets) ? item.snippets.join(' ') : '', 1200) })).filter(item => item.title && item.url);

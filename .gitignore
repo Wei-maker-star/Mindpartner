@@ -1,4 +1,7 @@
 .env
 node_modules/
-data/
+data/*
+!data/game-catalog.json
+!data/positive-psychology-kb.json
+.npm-cache/
 npm-debug.log*

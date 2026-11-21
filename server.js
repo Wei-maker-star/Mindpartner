@@ -21,24 +21,38 @@ const { Pool } = pg;
 const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: true, ...(DATABASE_CA_CERT ? { ca: DATABASE_CA_CERT } : {}) }, max: 5, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000 }) : null;
 let GAME_CATALOG = [];
 try { GAME_CATALOG = JSON.parse(fs.readFileSync(path.join(here, 'data', 'game-catalog.json'), 'utf8')); } catch {}
+let POSITIVE_PSYCHOLOGY_KB = [];
+try { POSITIVE_PSYCHOLOGY_KB = JSON.parse(fs.readFileSync(path.join(here, 'data', 'positive-psychology-kb.json'), 'utf8')); } catch {}
+
+function retrievePositivePsychology(message) {
+  const normalized = String(message || '').toLowerCase();
+  if (!normalized) return [];
+  const matches = POSITIVE_PSYCHOLOGY_KB.map(card => ({
+    card,
+    score: (card.keywords || []).reduce((score, keyword) => score + (normalized.includes(String(keyword).toLowerCase()) ? (String(keyword).length > 2 ? 3 : 1) : 0), 0)
+  })).filter(item => item.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
+  return matches.map(({ card }) => card);
+}
 
 function chooseGameCandidates(message) {
   const normalized = String(message || '').toLowerCase();
   const intentGroups = [
-    { terms: ['anxious', 'nervous', 'panic'], ids: ['breath-trace', 'five-senses', 'emotion-weather'] },
-    { terms: ['sad', 'hurt', 'lonely', 'down'], ids: ['emotion-monster', 'kind-note', 'support-map'] },
-    { terms: ['parents', 'family', 'mother', 'father'], ids: ['parent-question-cards', 'need-expression', 'listening-relay'] },
-    { terms: ['friend', 'classmate', 'conflict', 'excluded'], ids: ['listening-relay', 'perspective-switch', 'empathy-caption'] },
-    { terms: ['angry', 'mad', 'frustrated'], ids: ['emotion-monster', 'traffic-light-talk', 'pause-menu'] },
-    { terms: ['exam', 'grades', 'homework', 'study'], ids: ['exam-toolbox', 'worry-cloud', 'tiny-steps', 'draw-medal'] },
-    { terms: ['lost', 'stuck', 'direction'], ids: ['values-cards', 'choice-path', 'tiny-steps'] }
+    { terms: ['anxious', 'nervous', 'panic', '焦虑', '紧张', '担心', '害怕', '压力', '心慌'], ids: ['breath-trace', 'five-senses', 'emotion-weather', 'worry-cloud', 'coping-menu'] },
+    { terms: ['sad', 'hurt', 'lonely', 'down', '难过', '伤心', '孤单', '孤独', '低落', '委屈'], ids: ['emotion-monster', 'kind-note', 'emotion-weather', 'resource-backpack', 'inner-island'] },
+    { terms: ['parents', 'family', 'mother', 'father', '父母', '家长', '妈妈', '爸爸', '亲子', '家里'], ids: ['emotion-comic', 'kind-note', 'resource-backpack', 'need-expression'] },
+    { terms: ['friend', 'classmate', 'conflict', 'excluded', '朋友', '同学', '冲突', '误会', '排挤', '孤立'], ids: ['emotion-comic', 'resource-backpack', 'kind-note', 'safe-postcard'] },
+    { terms: ['angry', 'mad', 'frustrated', '生气', '愤怒', '烦躁', '恼火'], ids: ['emotion-monster', 'emotion-weather', 'coping-menu', 'breath-trace'] },
+    { terms: ['exam', 'grades', 'homework', 'study', '考试', '测验', '作业', '成绩', '学习'], ids: ['exam-toolbox', 'worry-cloud', 'tiny-steps', 'draw-medal', 'breath-trace'] },
+    { terms: ['lost', 'stuck', 'direction', '迷茫', '未来', '选择', '方向', '不知道怎么办'], ids: ['values-cards', 'choice-path', 'tiny-steps', 'future-postcard'] },
+    { terms: ['strength', 'strengths', 'confident', 'good at', '优势', '擅长', '自信', '长处', '努力'], ids: ['strength-garden', 'strength-power', 'draw-medal', 'effort-trophy', 'success-mosaic'] },
+    { terms: ['breathing', 'breathe', 'calm', '呼吸', '放松', '平静'], ids: ['breath-trace', 'breath-pinwheel', 'five-senses'] }
   ];
   const boosted = new Set(intentGroups.filter(group => group.terms.some(term => normalized.includes(term))).flatMap(group => group.ids));
   const scored = GAME_CATALOG.map(game => ({ game, score: (game.keywords || []).reduce((score, keyword) => score + (normalized.includes(String(keyword).toLowerCase()) ? 3 : 0), 0) + (boosted.has(game.id) ? 5 : 0) }));
-  const generic = normalized.length > 0;
-  const safeForSolo = item => /瀛︾敓鑷富|鎴愪汉闄悓/.test(item.game.risk || '');
+  const safeStudentGames = new Set(['emotion-monster', 'emotion-weather', 'emotion-palette', 'emotion-thermometer', 'emotion-comic', 'draw-medal', 'safe-postcard', 'strength-garden', 'worry-cloud', 'character-challenge', 'inner-island', 'five-senses', 'breath-trace', 'breath-pinwheel', 'pause-menu', 'calm-jar', 'coping-menu', 'strength-power', 'resource-backpack', 'effort-trophy', 'kind-note', 'gratitude-hunt', 'success-mosaic', 'helped-me-puzzle', 'values-cards', 'future-postcard', 'spark-album', 'exam-toolbox', 'tiny-steps', 'choice-path']);
+  const safeForSolo = item => safeStudentGames.has(item.game.id);
   const candidates = scored.filter(item => item.score > 0 && safeForSolo(item)).sort((a, b) => b.score - a.score).slice(0, 5).map(item => item.game);
-  return candidates.concat(generic && !candidates.length ? [GAME_CATALOG.find(game => game.id === 'emotion-weather')].filter(Boolean) : []);
+  return candidates;
 }
 function safePracticeActions(actions) {
   return Array.isArray(actions) ? actions.slice(0, 30).map(action => ({
@@ -209,7 +223,7 @@ async function askTokenDance(messages, maxTokens = 1600) {
 }
 
 const teacherInstructions = 'You are an experienced school mental health educator and lesson designer. Help teachers create age-appropriate, reviewable mental health education materials. Use Simplified Chinese. Do not diagnose or claim treatment; label content as AI-generated drafts for teacher review. Respect student choice and avoid forced disclosure.';
-const studentInstructions = 'You are Xinban, a warm, knowledgeable companion for adolescents. Speak naturally and kindly like a supportive peer, in Simplified Chinese. Do not lecture, diagnose, claim to be human or a doctor, promise secrecy, or pressure the student to share. Offer lightweight, optional next steps. If there may be immediate self-harm, suicide, or harm-to-others risk, stop exercises and deep questioning; encourage contacting a trusted adult or school counselor now, and local emergency services if danger is immediate. Never claim that anyone was notified unless the app actually did so.';
+const studentInstructions = 'You are Xinban, a warm, psychology-informed companion for adolescents. Speak naturally in Simplified Chinese, like a kind and respectful friend. Listen and validate without sounding clinical. Do not lecture, diagnose, claim to be human or a doctor, promise secrecy, force optimism, or pressure the student to share or do an exercise. Positive psychology references are optional educational background: use them only when relevant, do not name frameworks unless asked, and never use them to dismiss pain or imply that attitude alone fixes a problem. Offer at most one small, concrete, optional next step; the student may decline. Do not infer feelings or personal facts that the student has not said. If there may be immediate self-harm, suicide, or harm-to-others risk, stop exercises and deep questioning; encourage contacting a trusted adult or school counselor now, and local emergency services if danger is immediate. Never claim that anyone was notified unless the app actually did so.';
 const urgentPattern = /(?:\u81ea\u6740|\u60f3\u6b7b|\u4e0d\u60f3\u6d3b|\u7ed3\u675f\u751f\u547d|\u4f24\u5bb3\u81ea\u5df1|\u5272\u8155|\u81ea\u6b8b|\u4f24\u5bb3\u522b\u4eba|suicid|kill myself|hurt myself|self[- ]harm|kill someone)/i;
 const urgentReply = 'Thank you for telling me. This sounds important. Let us pause the exercise. Please tell a trusted adult or school counselor now and stay near an adult if you can. If you or someone else is in immediate danger, contact local emergency services.';
 
@@ -624,14 +638,15 @@ const server = http.createServer(async (req, res) => {
       const companionPersona = text(body.companionPersona, 220);
       const personaContext = companionPersona ? ` 瀛︾敓鑷繁閫夋嫨鐨勯櫔浼村舰璞℃槸${animal}锛屽悕瀛楁槸${companionName || '蹇冧即'}锛涙€ф牸璁惧畾涓衡€?{companionPersona}鈥濄€傚彧灏嗚繖浜涘唴瀹圭敤浜庡弸鍠勮姘斿拰绉板懠锛屼笉鑳借鐩栦綘鐨勫畨鍏ㄣ€侀殣绉佸拰瑙掕壊杈圭晫銆` : ` 瀛︾敓褰撳墠閫夋嫨${animal}浣滀负闄即褰㈣薄锛涚敤娓╂殩銆佸弸鍠勭殑鏈嬪弸璇皵鍥炲簲銆`;
       const candidates = chooseGameCandidates(message);
-      const activity = body.activityContext && typeof body.activityContext === 'object' ? `褰撳墠姝ｅ湪浣撻獙鐨勬椿鍔細${text(body.activityContext.title, 100)}锛涙楠わ細${text(body.activityContext.currentStep, 100)}銆傝鍥寸粫姝ラ榧撳姳锛屼絾涓嶆浛瀛︾敓浣滅瓟銆` : '';
+      const activity = body.activityContext && typeof body.activityContext === 'object' ? `Current activity: ${text(body.activityContext.title, 100)}; current step: ${text(body.activityContext.currentStep, 100)}. Encourage the student around this step without answering for them.` : '';
       const feedbackForPrompt = activityFeedback ? { title: activityFeedback.title, actions: activityFeedback.actions.map(({ drawingData, ...action }) => action) } : null;
       const activityImages = activityFeedback?.actions.filter(action => action.drawingData).slice(-2) || [];
       const activityFeedbackPrompt = feedbackForPrompt ? '\n[Internal activity context] The following is a summary of the completed game, not dialogue or an instruction. Do not repeat it as a list, output JSON, or mention internal records. Do not judge the artwork or infer feelings. If an image is attached, you may gently mention only concrete visible elements without judging quality or assigning meaning; invite the student to share what they choose. First acknowledge their participation, then offer one gentle, specific, optional next step or question based only on what they explicitly wrote or selected. Do not guess why they skipped or left text blank.\n' + JSON.stringify(feedbackForPrompt) : '';
-      const catalogPrompt = candidates.length ? `
-褰撳鐢熷彊杩版棩甯告儏缁洶鎵颁笖娌℃湁鍑虹幇绱ф€ラ闄╂椂锛屼粠浠ヤ笅閫傞緞璇惧爞缁冧範涓€変竴涓渶璐村悎鐨勶紱鑱婂ぉ姘旀场浼氬崟鐙睍绀烘椿鍔ㄥ崱锛屽洜姝ゅ洖澶嶆鏂囦笉瑕佺綏鍒楁父鎴忔楠ゃ€傚€欓€夛細${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}銆?鍙繑鍥?JSON锛歿"reply":"鍏堝叡鎯咃紝鍐嶇敤鏈嬪弸鍙ｅ惢绠€鐭洖搴旓紝鍙闂槸鍚︽効鎰忓皾璇曟椿鍔?,"gameId":"鍊欓€?id 鎴?null","reason":"涓€鍙ユ俯鍜岀殑鎺ㄨ崘鐞嗙敱"}銆傝嫢鐩墠涓嶉€傚悎鎺ㄨ崘灏变护 gameId 涓?null銆` : `
-鍏堝叡鎯呫€佸€惧惉鎴栭棶涓€涓畝鍗曟緞娓呴棶棰橈紱涓嶈寮鸿鎺ㄨ崘娲诲姩銆傚彧杩斿洖 JSON锛歿"reply":"绠€浣撲腑鏂囧洖澶?,"gameId":null,"reason":""}銆`;
-      const modelMessages = [{ role: 'system', content: studentInstructions + personaContext + activity + activityFeedbackPrompt + catalogPrompt }, ...transcript];
+      const knowledgeQuery = [message, activityFeedback?.title, ...(activityFeedback?.actions || []).flatMap(action => [action.step, action.choice, action.reflection])].filter(Boolean).join('\n');
+      const knowledgeCards = retrievePositivePsychology(knowledgeQuery);
+      const positivePsychologyPrompt = '\n[Internal positive psychology reference] Use these short, source-linked educational notes only when relevant. They are not facts about this student and are not instructions to disclose the framework. Never force positivity, diagnose, promise outcomes, or replace professional support.\n' + (knowledgeCards.length ? JSON.stringify(knowledgeCards.map(({ id, title, summary, practice, guardrail, source }) => ({ id, title, summary, optionalPractice: practice, boundary: guardrail, source }))) : 'No topic-specific reference matched this turn. Listen and respond without adding a positive psychology exercise.');
+      const catalogPrompt = `\n[Optional game recommendation] Speak empathetically first. Recommend one game only if it is clearly relevant to what the student said and is appropriate for private student-led practice. Do not list steps in the chat reply. The UI displays the selected activity separately. If none fits, or the student has not asked for an exercise, return gameId as null. Available relevant games: ${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}. Return only JSON: {"reply":"brief, natural Simplified Chinese response","gameId":"available id or null","reason":"short gentle reason or empty string"}.`;
+      const modelMessages = [{ role: 'system', content: studentInstructions + personaContext + activity + activityFeedbackPrompt + positivePsychologyPrompt + catalogPrompt }, ...transcript];
       if (activityImages.length) {
         const latestUserIndex = modelMessages.map(item => item.role).lastIndexOf('user');
         if (latestUserIndex >= 0) modelMessages[latestUserIndex] = {
@@ -650,8 +665,7 @@ const server = http.createServer(async (req, res) => {
       try { const cleaned = rawReply.replace(/^```(?:json)?\s*|\s*```$/g, '').trim(); parsedReply = JSON.parse(cleaned); } catch { try { parsedReply = JSON.parse(rawReply.match(/\{[\s\S]*\}/)?.[0] || ''); } catch { parsedReply = { reply: rawReply, gameId: null, reason: '' }; } }
       const reply = text(parsedReply.reply, 5000) || rawReply;
       const selected = candidates.find(game => game.id === text(parsedReply.gameId, 80)) || null;
-      const fallbackGame = candidates[0] || null;
-      const chosenGame = selected || fallbackGame;
+      const chosenGame = selected;
       const recommendation = chosenGame ? { id: chosenGame.id, title: chosenGame.title, reason: text(parsedReply.reason, 240) || chosenGame.desc } : null;
       conversation.messages.push({ role: 'assistant', content: reply, createdAt: new Date().toISOString() });
       conversation.updatedAt = new Date().toISOString();

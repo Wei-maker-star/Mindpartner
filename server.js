@@ -42,6 +42,7 @@ function chooseGameCandidates(message) {
     { terms: ['parents', 'family', 'mother', 'father', '父母', '家长', '妈妈', '爸爸', '亲子', '家里'], ids: ['emotion-comic', 'kind-note', 'resource-backpack', 'need-expression'] },
     { terms: ['friend', 'classmate', 'conflict', 'excluded', '朋友', '同学', '冲突', '误会', '排挤', '孤立', '欺负', '不理我'], ids: ['emotion-comic', 'resource-backpack', 'kind-note', 'safe-postcard'] },
     { terms: ['angry', 'mad', 'frustrated', '生气', '愤怒', '烦躁', '恼火'], ids: ['emotion-monster', 'emotion-weather', 'coping-menu', 'breath-trace'] },
+    { terms: ['秋招', '春招', '就业', '求职', '找工作', '面试', '选调', '招聘', 'offer', 'internship', 'job search'], ids: ['worry-cloud', 'coping-menu', 'tiny-steps', 'values-cards', 'future-postcard'] },
     { terms: ['exam', 'grades', 'homework', 'study', '考试', '测验', '作业', '成绩', '学习', '考砸', '没考好', '跟不上'], ids: ['exam-toolbox', 'worry-cloud', 'tiny-steps', 'draw-medal', 'breath-trace'] },
     { terms: ['lost', 'stuck', 'direction', '迷茫', '未来', '选择', '方向', '不知道怎么办'], ids: ['values-cards', 'choice-path', 'tiny-steps', 'future-postcard'] },
     { terms: ['strength', 'strengths', 'confident', 'good at', '优势', '擅长', '自信', '长处', '努力'], ids: ['strength-garden', 'strength-power', 'draw-medal', 'effort-trophy', 'success-mosaic'] },
@@ -62,7 +63,7 @@ function detectGameTrigger(message, recentContext = message) {
   const dissatisfied = /没听懂我|不理解我|没帮到我|答非所问|你说得不对|回复不好|不喜欢这个回答|对你失望|聊不下去|没用/.test(value);
   const noChat = /不想聊|不想说|不想讲|不想回答|别问了|不想继续聊|不想分享/.test(value);
   const clearEmotion = /焦虑|紧张|担心|害怕|心慌|压力大|压力很大|压力好大|压力太大|学习压力|学业压力|难过|伤心|孤单|孤独|低落|委屈|生气|愤怒|烦躁|无助|崩溃|怕考试/.test(context);
-  const concreteProblem = /吵架|冲突|误会|排挤|孤立|欺负|不理我|被笑|被骂|考砸|没考好|跟不上|不想上学|不想去学校|睡不着|不理解我|管得太多|关系很差|没有朋友|被批评|作业太多|来不及/.test(context);
+  const concreteProblem = /吵架|冲突|误会|排挤|孤立|欺负|不理我|被笑|被骂|考砸|没考好|跟不上|不想上学|不想去学校|睡不着|不理解我|管得太多|关系很差|没有朋友|被批评|作业太多|来不及|秋招|春招|就业|求职|找工作|面试|选调|招聘/.test(context);
   const clearConcern = clearEmotion || concreteProblem;
   return {
     explicitRequest,
@@ -709,7 +710,10 @@ const server = http.createServer(async (req, res) => {
       const recentUserContext = conversation.messages.filter(item => item.role === 'user').slice(-4).map(item => item.content).join('\n');
       const gameTrigger = detectGameTrigger(message, recentUserContext);
       const cooldown = recommendationCooldown(conversation, student, gameTrigger.explicitRequest);
-      const recommendationAllowed = scope === 'private' && gameTrigger.shouldOffer && cooldown.canOffer;
+      // A clear new concern, refusal to talk, or dissatisfaction can bypass the spacing interval,
+      // but still respects the per-conversation automatic cap. Explicit requests bypass both.
+      const concernMayBypassSpacing = gameTrigger.clearConcern || gameTrigger.noChat || gameTrigger.dissatisfied;
+      const recommendationAllowed = scope === 'private' && gameTrigger.shouldOffer && (cooldown.canOffer || (concernMayBypassSpacing && !cooldown.automaticLimitReached));
       let candidates = recommendationAllowed ? chooseGameCandidates(recentUserContext) : [];
       if (recommendationAllowed && !candidates.length && (gameTrigger.explicitRequest || gameTrigger.noChat || gameTrigger.dissatisfied)) {
         const fallbackIds = ['emotion-weather', 'emotion-monster', 'five-senses', 'coping-menu', 'kind-note'];
@@ -733,7 +737,7 @@ const server = http.createServer(async (req, res) => {
             : gameTrigger.explicitRequest
               ? 'The student explicitly asked for an activity. Acknowledge the request and offer at most one relevant option.'
               : 'The student has described a clear emotional or situational difficulty. First show you understood the specific concern, then gently offer at most one relevant activity as an optional next step; do not make the recommendation the whole reply.';
-      const catalogPrompt = `\n[Game recommendation decision] ${triggerInstructions} These are the only eligible student-led activities for this turn. Do not recommend an activity that is absent from this list. Do not list game steps in the chat reply; the UI shows the activity card separately. If a suitable option is not clear, return gameId as null. Eligible activities: ${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}. Return only JSON: {"reply":"brief, natural Simplified Chinese response","gameId":"eligible id or null","reason":"short gentle reason or empty string"}.`;
+      const catalogPrompt = `\n[Game recommendation decision] ${triggerInstructions} These are the only eligible student-led activities for this turn. Do not recommend an activity that is absent from this list. Do not list game steps in the chat reply; the UI shows the activity card separately. When an eligible activity is listed and the app says an offer is allowed, select the single best-fit activity instead of returning null. Eligible activities: ${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}. Return only JSON: {"reply":"brief, natural Simplified Chinese response","gameId":"eligible id or null","reason":"short gentle reason or empty string"}.`;
       const modelMessages = [{ role: 'system', content: studentInstructions + personaContext + activity + activityFeedbackPrompt + positivePsychologyPrompt + catalogPrompt }, ...transcript];
       if (activityImages.length) {
         const latestUserIndex = modelMessages.map(item => item.role).lastIndexOf('user');
@@ -753,7 +757,9 @@ const server = http.createServer(async (req, res) => {
       try { const cleaned = rawReply.replace(/^```(?:json)?\s*|\s*```$/g, '').trim(); parsedReply = JSON.parse(cleaned); } catch { try { parsedReply = JSON.parse(rawReply.match(/\{[\s\S]*\}/)?.[0] || ''); } catch { parsedReply = { reply: rawReply, gameId: null, reason: '' }; } }
       const reply = text(parsedReply.reply, 5000) || rawReply;
       const selected = candidates.find(game => game.id === text(parsedReply.gameId, 80)) || null;
-      const chosenGame = selected;
+      // Do not let an LLM's null/invalid gameId silently suppress an app-approved recommendation.
+      // The model still writes the empathetic reply; the matcher supplies the best eligible game.
+      const chosenGame = selected || (canActuallyRecommend ? candidates[0] : null);
       const recommendation = chosenGame ? { id: chosenGame.id, title: chosenGame.title, reason: text(parsedReply.reason, 240) || chosenGame.desc, offerId: crypto.randomUUID ? crypto.randomUUID() : `offer-${Date.now()}-${Math.random().toString(36).slice(2)}` } : null;
       if (recommendation) {
         student.gamePreferences ||= { offers: [] };

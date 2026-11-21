@@ -40,9 +40,9 @@ function chooseGameCandidates(message) {
     { terms: ['anxious', 'nervous', 'panic', '焦虑', '紧张', '担心', '害怕', '压力', '心慌'], ids: ['breath-trace', 'five-senses', 'emotion-weather', 'worry-cloud', 'coping-menu'] },
     { terms: ['sad', 'hurt', 'lonely', 'down', '难过', '伤心', '孤单', '孤独', '低落', '委屈'], ids: ['emotion-monster', 'kind-note', 'emotion-weather', 'resource-backpack', 'inner-island'] },
     { terms: ['parents', 'family', 'mother', 'father', '父母', '家长', '妈妈', '爸爸', '亲子', '家里'], ids: ['emotion-comic', 'kind-note', 'resource-backpack', 'need-expression'] },
-    { terms: ['friend', 'classmate', 'conflict', 'excluded', '朋友', '同学', '冲突', '误会', '排挤', '孤立'], ids: ['emotion-comic', 'resource-backpack', 'kind-note', 'safe-postcard'] },
+    { terms: ['friend', 'classmate', 'conflict', 'excluded', '朋友', '同学', '冲突', '误会', '排挤', '孤立', '欺负', '不理我'], ids: ['emotion-comic', 'resource-backpack', 'kind-note', 'safe-postcard'] },
     { terms: ['angry', 'mad', 'frustrated', '生气', '愤怒', '烦躁', '恼火'], ids: ['emotion-monster', 'emotion-weather', 'coping-menu', 'breath-trace'] },
-    { terms: ['exam', 'grades', 'homework', 'study', '考试', '测验', '作业', '成绩', '学习'], ids: ['exam-toolbox', 'worry-cloud', 'tiny-steps', 'draw-medal', 'breath-trace'] },
+    { terms: ['exam', 'grades', 'homework', 'study', '考试', '测验', '作业', '成绩', '学习', '考砸', '没考好', '跟不上'], ids: ['exam-toolbox', 'worry-cloud', 'tiny-steps', 'draw-medal', 'breath-trace'] },
     { terms: ['lost', 'stuck', 'direction', '迷茫', '未来', '选择', '方向', '不知道怎么办'], ids: ['values-cards', 'choice-path', 'tiny-steps', 'future-postcard'] },
     { terms: ['strength', 'strengths', 'confident', 'good at', '优势', '擅长', '自信', '长处', '努力'], ids: ['strength-garden', 'strength-power', 'draw-medal', 'effort-trophy', 'success-mosaic'] },
     { terms: ['breathing', 'breathe', 'calm', '呼吸', '放松', '平静'], ids: ['breath-trace', 'breath-pinwheel', 'five-senses'] }
@@ -53,6 +53,61 @@ function chooseGameCandidates(message) {
   const safeForSolo = item => safeStudentGames.has(item.game.id);
   const candidates = scored.filter(item => item.score > 0 && safeForSolo(item)).sort((a, b) => b.score - a.score).slice(0, 5).map(item => item.game);
   return candidates;
+}
+
+function detectGameTrigger(message, recentContext = message) {
+  const value = String(message || '').trim().toLowerCase();
+  const context = String(recentContext || value).toLowerCase().replace(/\s+/g, ' ');
+  const explicitRequest = /想.{0,3}(游戏|练习|活动)|来(个|一个)?(游戏|练习|活动)|推荐(个|一个|一项)?(游戏|练习|活动)|陪我.{0,3}(游戏|练习|活动)|给我(个|一个)?(游戏|练习)|我想换个方式/.test(value);
+  const dissatisfied = /没听懂我|不理解我|没帮到我|答非所问|你说得不对|回复不好|不喜欢这个回答|对你失望|聊不下去|没用/.test(value);
+  const noChat = /不想聊|不想说|不想讲|不想回答|别问了|不想继续聊|不想分享/.test(value);
+  const clearEmotion = /焦虑|紧张|担心|害怕|心慌|压力大|压力很大|压力好大|压力太大|学习压力|学业压力|难过|伤心|孤单|孤独|低落|委屈|生气|愤怒|烦躁|无助|崩溃|怕考试/.test(context);
+  const concreteProblem = /吵架|冲突|误会|排挤|孤立|欺负|不理我|被笑|被骂|考砸|没考好|跟不上|不想上学|不想去学校|睡不着|不理解我|管得太多|关系很差|没有朋友|被批评|作业太多|来不及/.test(context);
+  const clearConcern = clearEmotion || concreteProblem;
+  return {
+    explicitRequest,
+    dissatisfied,
+    noChat,
+    clearConcern,
+    shouldOffer: explicitRequest || noChat || dissatisfied || clearConcern
+  };
+}
+
+function adaptiveRecommendationInterval(student) {
+  const offers = student.gamePreferences?.offers || [];
+  const outcomes = offers.filter(item => item.startedAt || item.skippedAt).slice(-5);
+  const lastTwo = outcomes.slice(-2);
+  if (lastTwo.length === 2 && lastTwo.every(item => item.skippedAt && !item.startedAt)) return 7;
+  if (outcomes.length >= 3) {
+    const played = outcomes.filter(item => item.startedAt || item.completedAt).length;
+    const skipped = outcomes.filter(item => item.skippedAt && !item.startedAt).length;
+    if (played >= 3 && skipped === 0) return 3;
+    if (skipped / outcomes.length >= 0.6) return 7;
+  }
+  return 4;
+}
+
+function recommendationCooldown(conversation, student, explicitRequest) {
+  const messages = conversation.messages || [];
+  const pastRecommendations = messages.filter(item => item.role === 'assistant' && item.recommendationId);
+  const usedGameIds = new Set(pastRecommendations.map(item => item.recommendationId));
+  const lastIndex = messages.findLastIndex(item => item.role === 'assistant' && item.recommendationId);
+  const studentTurnsSinceLast = lastIndex < 0 ? Infinity : messages.slice(lastIndex + 1).filter(item => item.role === 'user').length;
+  const automaticLimitReached = pastRecommendations.length >= 2;
+  const intervalTurns = adaptiveRecommendationInterval(student);
+  const cooldownActive = studentTurnsSinceLast < intervalTurns;
+  return { usedGameIds, automaticLimitReached, cooldownActive, intervalTurns, canOffer: explicitRequest || (!automaticLimitReached && !cooldownActive) };
+}
+
+function updateGameOfferOutcome(student, offerId, event) {
+  const offers = student.gamePreferences?.offers || [];
+  const offer = offers.find(item => item.offerId === offerId);
+  if (!offer) return false;
+  const now = new Date().toISOString();
+  if (event === 'started') offer.startedAt ||= now;
+  if (event === 'skipped') offer.skippedAt ||= now;
+  if (event === 'completed') { offer.startedAt ||= now; offer.completedAt ||= now; }
+  return true;
 }
 function safePracticeActions(actions) {
   return Array.isArray(actions) ? actions.slice(0, 30).map(action => ({
@@ -357,6 +412,19 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { completed, recentPractices: progress.recentPractices || [], earnedAccessories: Math.min(5, Math.floor(completed / 5)), earnedOutfits: Math.min(5, Math.floor(completed / 20)), nextAccessory: completed >= 25 ? null : (Math.floor(completed / 5) + 1) * 5, nextOutfit: completed >= 100 ? null : (Math.floor(completed / 20) + 1) * 20 });
     } catch (error) { return json(res, 500, { error: error.message || '璁板綍缁冧範瀹屾垚澶辫触銆?' }); }
   }
+  if (req.method === 'POST' && url.pathname === '/api/student/game-preference') {
+    try {
+      const session = await requireRole(req, res, 'student'); if (!session) return;
+      const body = await readBody(req), offerId = text(body.offerId, 100), gameId = text(body.gameId, 80), event = text(body.event, 20);
+      if (!offerId || !['started', 'skipped'].includes(event)) return json(res, 400, { error: 'Invalid game preference event' });
+      const memory = await readMemory(), student = memory.students[session.userId];
+      if (!student || !student.gamePreferences || !updateGameOfferOutcome(student, offerId, event)) return json(res, 404, { error: 'Game recommendation not found' });
+      const offer = student.gamePreferences.offers.find(item => item.offerId === offerId);
+      if (gameId && gameId !== offer.gameId) return json(res, 400, { error: 'Game ID does not match recommendation' });
+      await writeMemory(memory, session.userId);
+      return json(res, 200, { ok: true, preferredIntervalTurns: adaptiveRecommendationInterval(student) });
+    } catch (error) { return json(res, 500, { error: error.message || 'Unable to save game preference' }); }
+  }
   if (req.method === 'POST' && url.pathname === '/api/student/practices/complete') {
     const session = await requireRole(req, res, 'student'); if (!session) return;
     try {
@@ -365,13 +433,14 @@ const server = http.createServer(async (req, res) => {
       if (!title || !/^[a-zA-Z0-9_-]{8,60}$/.test(completionId) || !actions.some(action => !action.skipped && (action.choice || action.reflection || action.drawingData))) return json(res, 400, { error: '璇峰畬鎴愯嚦灏戜竴涓椿鍔ㄦ楠ゅ悗鍐嶄繚瀛樿褰曘€?' });
       const memory = await readMemory(), student = memory.students[session.userId] ||= { createdAt: new Date().toISOString(), conversations: {} };
       const progress = student.practiceProgress ||= { completed: 0, completionIds: [], recentPractices: [] };
+      if (body.recommendationOfferId) updateGameOfferOutcome(student, text(body.recommendationOfferId, 100), 'completed');
       if (!(progress.completionIds || []).includes(completionId)) {
         progress.completionIds ||= []; progress.completionIds.push(completionId); progress.completed = (Number(progress.completed) || 0) + 1;
         progress.recentPractices ||= []; progress.recentPractices.push({ title, completedAt: new Date().toISOString() }); progress.recentPractices = progress.recentPractices.slice(-100);
         student.practiceRecords ||= []; student.practiceRecords.push({ id: completionId, title, completedAt: new Date().toISOString(), actions, chat: Array.isArray(body.chat) ? body.chat.slice(-20).map(item => ({ role: item?.role === 'assistant' ? 'assistant' : 'student', content: text(item?.content, 1000) })).filter(item => item.content) : [] });
         student.practiceRecords = student.practiceRecords.slice(-30); progress.lastCompletedAt = new Date().toISOString();
-        await writeMemory(memory, session.userId);
       }
+      await writeMemory(memory, session.userId);
       return json(res, 201, { ok: true, completed: Number(progress.completed) || 0 });
     } catch (error) { return json(res, 500, { error: error.message || '淇濆瓨涓汉缁冧範璁板綍澶辫触銆?' }); }
   }
@@ -637,7 +706,17 @@ const server = http.createServer(async (req, res) => {
       const companionName = text(body.companionName, 20);
       const companionPersona = text(body.companionPersona, 220);
       const personaContext = companionPersona ? ` 瀛︾敓鑷繁閫夋嫨鐨勯櫔浼村舰璞℃槸${animal}锛屽悕瀛楁槸${companionName || '蹇冧即'}锛涙€ф牸璁惧畾涓衡€?{companionPersona}鈥濄€傚彧灏嗚繖浜涘唴瀹圭敤浜庡弸鍠勮姘斿拰绉板懠锛屼笉鑳借鐩栦綘鐨勫畨鍏ㄣ€侀殣绉佸拰瑙掕壊杈圭晫銆` : ` 瀛︾敓褰撳墠閫夋嫨${animal}浣滀负闄即褰㈣薄锛涚敤娓╂殩銆佸弸鍠勭殑鏈嬪弸璇皵鍥炲簲銆`;
-      const candidates = chooseGameCandidates(message);
+      const recentUserContext = conversation.messages.filter(item => item.role === 'user').slice(-4).map(item => item.content).join('\n');
+      const gameTrigger = detectGameTrigger(message, recentUserContext);
+      const cooldown = recommendationCooldown(conversation, student, gameTrigger.explicitRequest);
+      const recommendationAllowed = scope === 'private' && gameTrigger.shouldOffer && cooldown.canOffer;
+      let candidates = recommendationAllowed ? chooseGameCandidates(recentUserContext) : [];
+      if (recommendationAllowed && !candidates.length && (gameTrigger.explicitRequest || gameTrigger.noChat || gameTrigger.dissatisfied)) {
+        const fallbackIds = ['emotion-weather', 'emotion-monster', 'five-senses', 'coping-menu', 'kind-note'];
+        candidates = fallbackIds.map(id => GAME_CATALOG.find(game => game.id === id)).filter(Boolean);
+      }
+      candidates = candidates.filter(game => !cooldown.usedGameIds.has(game.id)).slice(0, 5);
+      const canActuallyRecommend = recommendationAllowed && candidates.length > 0;
       const activity = body.activityContext && typeof body.activityContext === 'object' ? `Current activity: ${text(body.activityContext.title, 100)}; current step: ${text(body.activityContext.currentStep, 100)}. Encourage the student around this step without answering for them.` : '';
       const feedbackForPrompt = activityFeedback ? { title: activityFeedback.title, actions: activityFeedback.actions.map(({ drawingData, ...action }) => action) } : null;
       const activityImages = activityFeedback?.actions.filter(action => action.drawingData).slice(-2) || [];
@@ -645,7 +724,16 @@ const server = http.createServer(async (req, res) => {
       const knowledgeQuery = [message, activityFeedback?.title, ...(activityFeedback?.actions || []).flatMap(action => [action.step, action.choice, action.reflection])].filter(Boolean).join('\n');
       const knowledgeCards = retrievePositivePsychology(knowledgeQuery);
       const positivePsychologyPrompt = '\n[Internal positive psychology reference] Use these short, source-linked educational notes only when relevant. They are not facts about this student and are not instructions to disclose the framework. Never force positivity, diagnose, promise outcomes, or replace professional support.\n' + (knowledgeCards.length ? JSON.stringify(knowledgeCards.map(({ id, title, summary, practice, guardrail, source }) => ({ id, title, summary, optionalPractice: practice, boundary: guardrail, source }))) : 'No topic-specific reference matched this turn. Listen and respond without adding a positive psychology exercise.');
-      const catalogPrompt = `\n[Optional game recommendation] Speak empathetically first. Recommend one game only if it is clearly relevant to what the student said and is appropriate for private student-led practice. Do not list steps in the chat reply. The UI displays the selected activity separately. If none fits, or the student has not asked for an exercise, return gameId as null. Available relevant games: ${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}. Return only JSON: {"reply":"brief, natural Simplified Chinese response","gameId":"available id or null","reason":"short gentle reason or empty string"}.`;
+      const triggerInstructions = gameTrigger.noChat
+        ? canActuallyRecommend ? 'The student does not want to talk. Respect that, do not ask follow-up questions, and offer the activity only as a quiet, optional alternative; make clear they can stop or skip it.' : 'The student does not want to talk. Respect that and do not ask follow-up questions. No unused activity is eligible right now, so do not force or repeat one; let the student take a pause.'
+        : gameTrigger.dissatisfied
+          ? canActuallyRecommend ? 'The student is dissatisfied with the previous response. Acknowledge that and repair briefly without defending yourself; offer an activity only as an optional different way to continue.' : 'The student is dissatisfied with the previous response. Acknowledge that and repair briefly without defending yourself. Do not force or repeat an activity.'
+          : !canActuallyRecommend
+            ? 'The app has decided not to offer a game on this turn. Do not suggest, hint at, or select a game; respond to the student normally and ask one gentle clarifying question only if useful.'
+            : gameTrigger.explicitRequest
+              ? 'The student explicitly asked for an activity. Acknowledge the request and offer at most one relevant option.'
+              : 'The student has described a clear emotional or situational difficulty. First show you understood the specific concern, then gently offer at most one relevant activity as an optional next step; do not make the recommendation the whole reply.';
+      const catalogPrompt = `\n[Game recommendation decision] ${triggerInstructions} These are the only eligible student-led activities for this turn. Do not recommend an activity that is absent from this list. Do not list game steps in the chat reply; the UI shows the activity card separately. If a suitable option is not clear, return gameId as null. Eligible activities: ${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}. Return only JSON: {"reply":"brief, natural Simplified Chinese response","gameId":"eligible id or null","reason":"short gentle reason or empty string"}.`;
       const modelMessages = [{ role: 'system', content: studentInstructions + personaContext + activity + activityFeedbackPrompt + positivePsychologyPrompt + catalogPrompt }, ...transcript];
       if (activityImages.length) {
         const latestUserIndex = modelMessages.map(item => item.role).lastIndexOf('user');
@@ -666,8 +754,14 @@ const server = http.createServer(async (req, res) => {
       const reply = text(parsedReply.reply, 5000) || rawReply;
       const selected = candidates.find(game => game.id === text(parsedReply.gameId, 80)) || null;
       const chosenGame = selected;
-      const recommendation = chosenGame ? { id: chosenGame.id, title: chosenGame.title, reason: text(parsedReply.reason, 240) || chosenGame.desc } : null;
-      conversation.messages.push({ role: 'assistant', content: reply, createdAt: new Date().toISOString() });
+      const recommendation = chosenGame ? { id: chosenGame.id, title: chosenGame.title, reason: text(parsedReply.reason, 240) || chosenGame.desc, offerId: crypto.randomUUID ? crypto.randomUUID() : `offer-${Date.now()}-${Math.random().toString(36).slice(2)}` } : null;
+      if (recommendation) {
+        student.gamePreferences ||= { offers: [] };
+        student.gamePreferences.offers ||= [];
+        student.gamePreferences.offers.push({ offerId: recommendation.offerId, conversationId, gameId: recommendation.id, offeredAt: new Date().toISOString() });
+        student.gamePreferences.offers = student.gamePreferences.offers.slice(-60);
+      }
+      conversation.messages.push({ role: 'assistant', content: reply, ...(recommendation ? { recommendationId: recommendation.id, recommendationOfferId: recommendation.offerId } : {}), createdAt: new Date().toISOString() });
       conversation.updatedAt = new Date().toISOString();
       await writeMemory(memory,studentId);
       return json(res, 200, { reply, safetyEscalation: false, recommendation });

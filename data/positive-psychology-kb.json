@@ -1,0 +1,196 @@
+[
+  {
+    "id": "perma-wellbeing",
+    "title": "PERMA：幸福感的多面视角",
+    "keywords": [
+      "幸福",
+      "开心",
+      "意义",
+      "关系",
+      "投入",
+      "成就"
+    ],
+    "summary": "PERMA 用积极情绪、投入、关系、意义和成就描述幸福感的不同方面，是理解体验的一个视角，不是测验或评价标准。",
+    "practice": "可选地问：最近哪件小事让你稍微投入、感到连接、有意义，或完成了一点点？也可以说暂时没有。",
+    "guardrail": "不要求学生开心，也不把痛苦改写成积极体验。",
+    "source": {
+      "title": "Penn Positive Psychology Center: PERMA Profiler",
+      "url": "https://ppc.sas.upenn.edu/resources/questionnaires-researchers/perma-profiler"
+    }
+  },
+  {
+    "id": "character-strengths",
+    "title": "优势与品格力量",
+    "keywords": [
+      "优势",
+      "擅长",
+      "长处",
+      "勇敢",
+      "好奇",
+      "坚持",
+      "创造",
+      "善良",
+      "自信"
+    ],
+    "summary": "VIA 青少年材料介绍多种品格力量。优势是可在具体情境中调用的资源，不是固定人格标签；由学生自己决定什么算自己的力量。",
+    "practice": "如果学生愿意，可以回想一次尝试、求助、好奇或照顾他人的小片段。",
+    "guardrail": "不替学生贴标签，也不把优势变成必须一直坚强的要求。",
+    "source": {
+      "title": "VIA Youth: Teachers Guide to the VIA Survey of Character Strengths",
+      "url": "https://www.viacharacter.org/pdf/via-youth-teachers-guide.pdf"
+    }
+  },
+  {
+    "id": "hope-small-steps",
+    "title": "希望、目标与可行路径",
+    "keywords": [
+      "\u538b\u529b",
+      "\u8003\u8bd5",
+      "\u4f5c\u4e1a",
+      "希望",
+      "目标",
+      "下一步",
+      "怎么办",
+      "无助",
+      "计划",
+      "未来",
+      "选择",
+      "迷茫"
+    ],
+    "summary": "希望取向的练习可以把目标拆小，并探索多条可能路径；计划可以调整，遇到阻碍时也可以寻求支持。",
+    "practice": "可选地问：如果只选一个很小、可改变的下一步，你会选什么？如果走不通，有谁或什么能帮一点忙？",
+    "guardrail": "不承诺事情一定会变好，也不把现实困难简化成心态问题。",
+    "source": {
+      "title": "Penn Resilience Program",
+      "url": "https://ppc.sas.upenn.edu/learn-more/perry-initiative/penn-resilience-program"
+    }
+  },
+  {
+    "id": "gratitude-choice",
+    "title": "感恩与留意支持",
+    "keywords": [
+      "感谢",
+      "感恩",
+      "帮助",
+      "支持",
+      "值得记住"
+    ],
+    "summary": "感恩练习可以帮助一些人留意重视的人、事或资源，但体验因人而异；它不要求忽略受伤、冲突或不公平。",
+    "practice": "如果此刻合适，可以找一件愿意记住的小事；也可以跳过。",
+    "guardrail": "绝不要求学生感谢伤害自己的人，或用感恩否定难受。",
+    "source": {
+      "title": "Digital positive psychology interventions for youth: systematic review and meta-analysis",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11358669/"
+    }
+  },
+  {
+    "id": "self-compassion",
+    "title": "自我友善与自我同情",
+    "keywords": [
+      "\u538b\u529b",
+      "\u96be\u8fc7",
+      "\u632b\u6298",
+      "自责",
+      "我不好",
+      "没用",
+      "讨厌自己",
+      "犯错",
+      "失败",
+      "内疚"
+    ],
+    "summary": "自我同情不是否认问题，而是在困难时减少攻击自己，像对待在意的朋友那样留出理解和修正的空间。",
+    "practice": "可选地补完一句：这件事确实不容易；此刻我可以先对自己说……。",
+    "guardrail": "不说“你应该爱自己”，不淡化真实后果或责任。",
+    "source": {
+      "title": "Digital positive psychology interventions for youth: systematic review and meta-analysis",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11358669/"
+    }
+  },
+  {
+    "id": "relationships-support",
+    "title": "关系、联结与求助",
+    "keywords": [
+      "孤单",
+      "孤独",
+      "朋友",
+      "同学",
+      "家人",
+      "父母",
+      "妈妈",
+      "爸爸",
+      "没人懂",
+      "求助",
+      "倾听"
+    ],
+    "summary": "积极心理学重视关系与联结。支持可能只是有人愿意倾听、陪伴或协助找到可信任的大人。",
+    "practice": "可以问：有没有一个相对让你安心的人？你希望对方先听你说、陪一会儿，还是一起想办法？",
+    "guardrail": "不假定家庭或同伴关系安全；由学生选择对象和分享范围。",
+    "source": {
+      "title": "Penn Positive Psychology Center: PERMA Profiler",
+      "url": "https://ppc.sas.upenn.edu/resources/questionnaires-researchers/perma-profiler"
+    }
+  },
+  {
+    "id": "savoring-small-moments",
+    "title": "留意当下的小片刻",
+    "keywords": [
+      "当下",
+      "放松",
+      "休息",
+      "喜欢",
+      "音乐",
+      "兴趣",
+      "舒服",
+      "小确幸"
+    ],
+    "summary": "留意当下可以是看一眼喜欢的颜色、听一小段音乐，或注意某个中性的感官细节，是可选的注意力练习。",
+    "practice": "如果愿意，花十秒注意一个此刻看见、听见或触到的细节；不需要把它变成愉快感受。",
+    "guardrail": "不强迫放松、深呼吸或积极感受；不舒服时可以停止。",
+    "source": {
+      "title": "Digital positive psychology interventions for youth: systematic review and meta-analysis",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11358669/"
+    }
+  },
+  {
+    "id": "meaning-and-values",
+    "title": "意义与个人重视的方向",
+    "keywords": [
+      "价值",
+      "重要",
+      "在意",
+      "意义",
+      "未来",
+      "想成为",
+      "选择",
+      "方向"
+    ],
+    "summary": "意义和价值由学生自己定义。探索可以帮助澄清想靠近的方向，但不必马上形成目标或作出重大决定。",
+    "practice": "可选地问：什么对你比较重要？有没有一个不勉强自己的小行动，能稍微靠近它？",
+    "guardrail": "不替学生规定人生目标，不把成人期待当作学生自己的价值。",
+    "source": {
+      "title": "Penn Positive Psychology Center: PERMA Profiler",
+      "url": "https://ppc.sas.upenn.edu/resources/questionnaires-researchers/perma-profiler"
+    }
+  },
+  {
+    "id": "evidence-boundaries",
+    "title": "适用边界与证据说明",
+    "keywords": [
+      "心理学",
+      "有用吗",
+      "疗愈",
+      "治疗",
+      "效果",
+      "科学",
+      "积极心理",
+      "练习"
+    ],
+    "summary": "青少年积极心理学数字练习的研究结果并不完全一致，效果可能随练习、群体和情境变化。聊天练习属于教育和自我探索支持，不能替代评估、治疗或危机服务。",
+    "practice": "把活动作为可尝试的选择；学生可以跳过、停止，或告诉可信任的大人自己需要更多帮助。",
+    "guardrail": "不得声称练习可治疗疾病、保证改善情绪或替代专业服务。",
+    "source": {
+      "title": "Digital positive psychology interventions for youth: systematic review and meta-analysis",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11358669/"
+    }
+  }
+]

@@ -37,6 +37,7 @@ function retrievePositivePsychology(message) {
 function chooseGameCandidates(message) {
   const normalized = String(message || '').toLowerCase();
   const intentGroups = [
+    { terms: ['画画', '画出来', '涂鸦', '用颜色', '画一画'], ids: ['emotion-monster', 'emotion-palette', 'inner-island'] },
     { terms: ['anxious', 'nervous', 'panic', '焦虑', '紧张', '担心', '害怕', '压力', '心慌'], ids: ['breath-trace', 'five-senses', 'emotion-weather', 'worry-cloud', 'coping-menu'] },
     { terms: ['sad', 'hurt', 'lonely', 'down', '难过', '伤心', '孤单', '孤独', '低落', '委屈'], ids: ['emotion-monster', 'kind-note', 'emotion-weather', 'resource-backpack', 'inner-island'] },
     { terms: ['parents', 'family', 'mother', 'father', '父母', '家长', '妈妈', '爸爸', '亲子', '家里'], ids: ['emotion-comic', 'kind-note', 'resource-backpack', 'need-expression'] },
@@ -52,25 +53,27 @@ function chooseGameCandidates(message) {
   const scored = GAME_CATALOG.map(game => ({ game, score: (game.keywords || []).reduce((score, keyword) => score + (normalized.includes(String(keyword).toLowerCase()) ? 3 : 0), 0) + (boosted.has(game.id) ? 5 : 0) }));
   const safeStudentGames = new Set(['emotion-monster', 'emotion-weather', 'emotion-palette', 'emotion-thermometer', 'emotion-comic', 'draw-medal', 'safe-postcard', 'strength-garden', 'worry-cloud', 'character-challenge', 'inner-island', 'five-senses', 'breath-trace', 'breath-pinwheel', 'pause-menu', 'calm-jar', 'coping-menu', 'strength-power', 'resource-backpack', 'effort-trophy', 'kind-note', 'gratitude-hunt', 'success-mosaic', 'helped-me-puzzle', 'values-cards', 'future-postcard', 'spark-album', 'exam-toolbox', 'tiny-steps', 'choice-path']);
   const safeForSolo = item => safeStudentGames.has(item.game.id);
-  const candidates = scored.filter(item => item.score > 0 && safeForSolo(item)).sort((a, b) => b.score - a.score).slice(0, 5).map(item => item.game);
+  const candidates = scored.filter(item => item.score > 0 && safeForSolo(item)).sort((a, b) => b.score - a.score).map(item => item.game);
   return candidates;
 }
 
 function detectGameTrigger(message, recentContext = message) {
   const value = String(message || '').trim().toLowerCase();
   const context = String(recentContext || value).toLowerCase().replace(/\s+/g, ' ');
-  const explicitRequest = /想.{0,3}(游戏|练习|活动)|来(个|一个)?(游戏|练习|活动)|推荐(个|一个|一项)?(游戏|练习|活动)|陪我.{0,3}(游戏|练习|活动)|给我(个|一个)?(游戏|练习)|我想换个方式/.test(value);
+  const declinesGame = /(?:不想|不愿|不要|不用|不需要|不喜欢|别|不做|不玩).{0,8}(?:练习|游戏|活动)|只想.{0,4}(聊|说)|只想你听|先听我说|想静静|不玩了|下次再玩|先不玩|再见|先走了/.test(value);
+  const explicitRequest = /^(?:小?练习|小游戏|游戏|活动|呼吸练习)[吧呀啊吗？?！!。\s]*$|(?:想|来|做|玩|推荐|试|陪我|给我|带我|开始|有没有|可以).{0,14}(?:游戏|练习|活动)|我想换个方式/.test(value);
   const dissatisfied = /没听懂我|不理解我|没帮到我|答非所问|你说得不对|回复不好|不喜欢这个回答|对你失望|聊不下去|没用/.test(value);
   const noChat = /不想聊|不想说|不想讲|不想回答|别问了|不想继续聊|不想分享/.test(value);
   const clearEmotion = /焦虑|紧张|担心|害怕|心慌|压力大|压力很大|压力好大|压力太大|学习压力|学业压力|难过|伤心|孤单|孤独|低落|委屈|生气|愤怒|烦躁|无助|崩溃|怕考试/.test(context);
   const concreteProblem = /吵架|冲突|误会|排挤|孤立|欺负|不理我|被笑|被骂|考砸|没考好|跟不上|不想上学|不想去学校|睡不着|不理解我|管得太多|关系很差|没有朋友|被批评|作业太多|来不及|秋招|春招|就业|求职|找工作|面试|选调|招聘/.test(context);
   const clearConcern = clearEmotion || concreteProblem;
   return {
-    explicitRequest,
+    explicitRequest: explicitRequest && !declinesGame,
+    declinesGame,
     dissatisfied,
     noChat,
     clearConcern,
-    shouldOffer: explicitRequest || noChat || dissatisfied || clearConcern
+    shouldOffer: !declinesGame && (explicitRequest || noChat || dissatisfied || clearConcern)
   };
 }
 
@@ -93,11 +96,9 @@ function recommendationCooldown(conversation, student, explicitRequest) {
   const pastRecommendations = messages.filter(item => item.role === 'assistant' && item.recommendationId);
   const usedGameIds = new Set(pastRecommendations.map(item => item.recommendationId));
   const lastIndex = messages.findLastIndex(item => item.role === 'assistant' && item.recommendationId);
-  const studentTurnsSinceLast = lastIndex < 0 ? Infinity : messages.slice(lastIndex + 1).filter(item => item.role === 'user').length;
-  const automaticLimitReached = pastRecommendations.length >= 2;
   const intervalTurns = adaptiveRecommendationInterval(student);
-  const cooldownActive = studentTurnsSinceLast < intervalTurns;
-  return { usedGameIds, automaticLimitReached, cooldownActive, intervalTurns, canOffer: explicitRequest || (!automaticLimitReached && !cooldownActive) };
+  const turns = messages.slice(lastIndex + 1).filter(item => item.role === 'user').length;
+  return { usedGameIds, reviewContext: turns >= intervalTurns, canOffer: explicitRequest || lastIndex < 0 || turns >= intervalTurns };
 }
 
 function updateGameOfferOutcome(student, offerId, event) {
@@ -708,18 +709,27 @@ const server = http.createServer(async (req, res) => {
       const companionPersona = text(body.companionPersona, 220);
       const personaContext = companionPersona ? ` 瀛︾敓鑷繁閫夋嫨鐨勯櫔浼村舰璞℃槸${animal}锛屽悕瀛楁槸${companionName || '蹇冧即'}锛涙€ф牸璁惧畾涓衡€?{companionPersona}鈥濄€傚彧灏嗚繖浜涘唴瀹圭敤浜庡弸鍠勮姘斿拰绉板懠锛屼笉鑳借鐩栦綘鐨勫畨鍏ㄣ€侀殣绉佸拰瑙掕壊杈圭晫銆` : ` 瀛︾敓褰撳墠閫夋嫨${animal}浣滀负闄即褰㈣薄锛涚敤娓╂殩銆佸弸鍠勭殑鏈嬪弸璇皵鍥炲簲銆`;
       const recentUserContext = conversation.messages.filter(item => item.role === 'user').slice(-4).map(item => item.content).join('\n');
-      const gameTrigger = detectGameTrigger(message, recentUserContext);
+      const gameTrigger = detectGameTrigger(message);
       const cooldown = recommendationCooldown(conversation, student, gameTrigger.explicitRequest);
-      // A clear new concern, refusal to talk, or dissatisfaction can bypass the spacing interval,
-      // but still respects the per-conversation automatic cap. Explicit requests bypass both.
-      const concernMayBypassSpacing = gameTrigger.clearConcern || gameTrigger.noChat || gameTrigger.dissatisfied;
-      const recommendationAllowed = scope === 'private' && gameTrigger.shouldOffer && (cooldown.canOffer || (concernMayBypassSpacing && !cooldown.automaticLimitReached));
-      let candidates = recommendationAllowed ? chooseGameCandidates(recentUserContext) : [];
-      if (recommendationAllowed && !candidates.length && (gameTrigger.explicitRequest || gameTrigger.noChat || gameTrigger.dissatisfied)) {
+      const recentDecline = conversation.messages.filter(item => item.role === 'user').slice(-4)
+        .some(item => detectGameTrigger(item.content).declinesGame);
+      const contextualReview = !gameTrigger.shouldOffer && cooldown.reviewContext;
+      const recommendationAllowed = scope === 'private' && !body.activityContext && !activityFeedback &&
+        (!recentDecline || gameTrigger.explicitRequest) && cooldown.canOffer && (gameTrigger.shouldOffer || contextualReview);
+      let candidates = [];
+      if (recommendationAllowed) {
         const fallbackIds = ['emotion-weather', 'emotion-monster', 'five-senses', 'coping-menu', 'kind-note'];
-        candidates = fallbackIds.map(id => GAME_CATALOG.find(game => game.id === id)).filter(Boolean);
+        const wantsBreathing = gameTrigger.explicitRequest && message.includes('呼吸');
+        const preferred = wantsBreathing
+          ? ['breath-trace', 'breath-pinwheel'].map(id => GAME_CATALOG.find(game => game.id === id)).filter(Boolean)
+          : [];
+        const ranked = preferred.length ? preferred : [...new Set([
+          ...chooseGameCandidates(message), ...chooseGameCandidates(recentUserContext),
+          ...fallbackIds.map(id => GAME_CATALOG.find(game => game.id === id)).filter(Boolean)
+        ])];
+        candidates = ranked.filter(game => !cooldown.usedGameIds.has(game.id)).slice(0, 5);
+        if (!candidates.length && gameTrigger.explicitRequest) candidates = ranked.slice(0, 1);
       }
-      candidates = candidates.filter(game => !cooldown.usedGameIds.has(game.id)).slice(0, 5);
       const canActuallyRecommend = recommendationAllowed && candidates.length > 0;
       const activity = body.activityContext && typeof body.activityContext === 'object' ? `Current activity: ${text(body.activityContext.title, 100)}; current step: ${text(body.activityContext.currentStep, 100)}. Encourage the student around this step without answering for them.` : '';
       const feedbackForPrompt = activityFeedback ? { title: activityFeedback.title, actions: activityFeedback.actions.map(({ drawingData, ...action }) => action) } : null;
@@ -728,7 +738,9 @@ const server = http.createServer(async (req, res) => {
       const knowledgeQuery = [message, activityFeedback?.title, ...(activityFeedback?.actions || []).flatMap(action => [action.step, action.choice, action.reflection])].filter(Boolean).join('\n');
       const knowledgeCards = retrievePositivePsychology(knowledgeQuery);
       const positivePsychologyPrompt = '\n[Internal positive psychology reference] Use these short, source-linked educational notes only when relevant. They are not facts about this student and are not instructions to disclose the framework. Never force positivity, diagnose, promise outcomes, or replace professional support.\n' + (knowledgeCards.length ? JSON.stringify(knowledgeCards.map(({ id, title, summary, practice, guardrail, source }) => ({ id, title, summary, optionalPractice: practice, boundary: guardrail, source }))) : 'No topic-specific reference matched this turn. Listen and respond without adding a positive psychology exercise.');
-      const triggerInstructions = gameTrigger.noChat
+      const triggerInstructions = contextualReview && canActuallyRecommend
+        ? 'Respond naturally to the current conversation. Consider an optional activity only if the recent exchange supports one.'
+        : gameTrigger.noChat
         ? canActuallyRecommend ? 'The student does not want to talk. Respect that, do not ask follow-up questions, and offer the activity only as a quiet, optional alternative; make clear they can stop or skip it.' : 'The student does not want to talk. Respect that and do not ask follow-up questions. No unused activity is eligible right now, so do not force or repeat one; let the student take a pause.'
         : gameTrigger.dissatisfied
           ? canActuallyRecommend ? 'The student is dissatisfied with the previous response. Acknowledge that and repair briefly without defending yourself; offer an activity only as an optional different way to continue.' : 'The student is dissatisfied with the previous response. Acknowledge that and repair briefly without defending yourself. Do not force or repeat an activity.'
@@ -738,7 +750,10 @@ const server = http.createServer(async (req, res) => {
               ? 'The student explicitly asked for an activity. Acknowledge the request and offer at most one relevant option.'
               : 'The student has described a clear emotional or situational difficulty. First show you understood the specific concern, then gently offer at most one relevant activity as an optional next step; do not make the recommendation the whole reply.';
       const catalogPrompt = `\n[Game recommendation decision] ${triggerInstructions} These are the only eligible student-led activities for this turn. Do not recommend an activity that is absent from this list. Do not list game steps in the chat reply; the UI shows the activity card separately. When an eligible activity is listed and the app says an offer is allowed, select the single best-fit activity instead of returning null. Eligible activities: ${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}. Return only JSON: {"reply":"brief, natural Simplified Chinese response","gameId":"eligible id or null","reason":"short gentle reason or empty string"}.`;
-      const modelMessages = [{ role: 'system', content: studentInstructions + personaContext + activity + activityFeedbackPrompt + positivePsychologyPrompt + catalogPrompt }, ...transcript];
+      const contextDecision = contextualReview && canActuallyRecommend
+        ? '\nFor this turn, override the activity selection instruction above: a card is OPTIONAL. Read the recent exchange for an expressed wish to act, difficulty putting something into words, a recurring unresolved worry, or interest in another form of expression. If one listed exercise serves that specific moment, choose its ID and briefly connect it to what the student said. For ordinary conversation, closing remarks, a wish to be heard, or no clear fit, return gameId null and reply normally without proposing an exercise. Never infer distress from turn count.'
+        : '';
+      const modelMessages = [{ role: 'system', content: studentInstructions + personaContext + activity + activityFeedbackPrompt + positivePsychologyPrompt + catalogPrompt + contextDecision }, ...transcript];
       if (activityImages.length) {
         const latestUserIndex = modelMessages.map(item => item.role).lastIndexOf('user');
         if (latestUserIndex >= 0) modelMessages[latestUserIndex] = {
@@ -759,7 +774,7 @@ const server = http.createServer(async (req, res) => {
       const selected = candidates.find(game => game.id === text(parsedReply.gameId, 80)) || null;
       // Do not let an LLM's null/invalid gameId silently suppress an app-approved recommendation.
       // The model still writes the empathetic reply; the matcher supplies the best eligible game.
-      const chosenGame = selected || (canActuallyRecommend ? candidates[0] : null);
+      const chosenGame = selected || (canActuallyRecommend && !contextualReview ? candidates[0] : null);
       const recommendation = chosenGame ? { id: chosenGame.id, title: chosenGame.title, reason: text(parsedReply.reason, 240) || chosenGame.desc, offerId: crypto.randomUUID ? crypto.randomUUID() : `offer-${Date.now()}-${Math.random().toString(36).slice(2)}` } : null;
       if (recommendation) {
         student.gamePreferences ||= { offers: [] };

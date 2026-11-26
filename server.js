@@ -682,9 +682,22 @@ const server = http.createServer(async (req, res) => {
     try {
       const session = await requireRole(req, res, 'teacher'); if (!session) return;
       const body = await readBody(req);
-      const message = text(body.message, 3000);
+      const message = text(body.message, body.format === 'pptx' ? 32000 : 3000);
       if (!message) return json(res, 400, { error: '璇峰厛鍐欎笅浣犵殑澶囪闇€姹傘€?' });
-      const history = Array.isArray(body.history) ? body.history.slice(-10).map(item => ({ role: item?.role === 'assistant' ? 'assistant' : 'user', content: text(item?.content, 3000) })).filter(item => item.content) : [];
+      const exporting = body.format === 'pptx';
+      const history = Array.isArray(body.history) ? body.history.slice(exporting ? -6 : -10).map(item => ({ role: item?.role === 'assistant' ? 'assistant' : 'user', content: text(item?.content, exporting ? 16000 : 3000) })).filter(item => item.content) : [];
+      if (exporting) {
+        const instruction = '本轮制作可投影课件，根据对话中的教案和最新要求保留教学目标、活动顺序、时间和关键引导。仅返回 JSON 对象 {"slides":[{"title":"课题","subtitle":"学段与课时","lines":["课堂要点"]}]}。建议8至16页，每页1至4条短句。封面用具体课题作标题。末页写教育用途免责声明。';
+        const raw = await askTokenDance([{role:'system', content:teacherInstructions + instruction}, ...history, {role:'user',content:message}], 6000);
+        let slides;
+        try { slides = JSON.parse(raw.trim().replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/gi, '')).slides; } catch {}
+        if (!Array.isArray(slides) || slides.length < 2 || slides.length > 40 || !slides.every(s => typeof s?.title === 'string' && s.title.trim() && Array.isArray(s.lines) && s.lines.length && s.lines.every(v => typeof v === 'string'))) {
+          return json(res, 502, {error:'模型返回的课件页格式不完整，请重新生成。'});
+        }
+        slides = slides.map(s => ({title:s.title.trim(), subtitle:typeof s.subtitle === 'string' ? s.subtitle : '', lines:s.lines}));
+        const reply = slides.map((s,i) => '### 第' + (i+1) + '页｜' + s.title + '\n' + [s.subtitle,...s.lines].filter(Boolean).map(v => '- ' + v).join('\n')).join('\n\n');
+        return json(res, 200, {reply:reviewLessonDraft(reply), slides});
+      }
       const answer = await askTokenDance([{ role: 'system', content: teacherInstructions }, ...history, { role: 'user', content: message }], 4600);
       return json(res, 200, { reply: reviewLessonDraft(answer), model: MODEL });
     } catch (error) { return json(res, error.status || 500, { error: error.message || '鐢熸垚澶辫触锛岃绋嶅悗閲嶈瘯銆?' }); }

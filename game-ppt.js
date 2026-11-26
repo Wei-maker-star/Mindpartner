@@ -61,6 +61,17 @@
     steps.forEach((step, index) => slides.push({ title: `第 ${index + 1} 步｜${step.title || '活动步骤'}`, subtitle: '教师可投屏逐步引导；学生可自主选择参与方式。', visual: ['storyTree','collabCanvas','auctionAnimated'].includes(step.type) ? step : null, lines: [step.prompt || '', ...(step.options?.length ? [`可选回应：${step.options.join(' / ')}`] : []), ...(step.type === 'draw' || step.type === 'collabCanvas' ? ['创作提示：学生可使用多色画笔、橡皮擦并下载 PNG。'] : []), ...(step.type === 'auctionAnimated' ? ['互动方式：十枚虚拟星点可分配给不同支持资源，敲槌后一起回看。'] : []), ...(step.type === 'storyTree' ? ['分支流程：暂停观察 / 向同伴求助 / 调整计划 → 继续探索不同结局。'] : []), ...(step.type === 'timer' ? [`建议时长：${step.seconds || 20} 秒；全程保持舒适，不适时立即停止。`] : []), '引导提示：给学生思考和跳过的空间，不评价答案对错。'].filter(Boolean) }));
     slides.push({ title: '结束与回看', subtitle: '分享完全自愿；不对作品、选择或表达作诊断。', lines: ['可以邀请学生说说想带走的一个小发现，也可以安静结束。', '如果学生表达严重困扰或安全风险，暂停活动，依学校流程联系心理老师或专业支持。', 'AI 生成内容为教育活动草稿，教师应结合学情审核后使用。'] });
     if (Array.isArray(game.sources) && game.sources.length) slides.push({ title: '设计参考与来源', subtitle: '公开研究用于启发互动形式；不代表该游戏经过临床验证。', lines: game.sources.slice(0, 5).map(source => `${source.title}\n${source.url}`) });
+    return packageSlides(slides);
+  }
+  window.downloadLessonSlides = function (slides) {
+    const url = URL.createObjectURL(packageSlides(slides));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = slides[0].title.replace(/[\\/:*?"<>|]/g, '_') + '.pptx';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+  function packageSlides(slides) {
     const rels = slides.map((_, i) => `<Relationship Id="rId${i + 2}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>`).join('');
     const slideIds = slides.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 2}"/>`).join('');
     const files = {

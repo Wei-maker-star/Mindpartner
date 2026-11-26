@@ -100,7 +100,7 @@ window.openPlan = function (resource = null) {
     <div id="teacherAgentMessages" class="agent-messages"></div><div id="teacherAgentProgress"></div>
     <div class="agent-compose"><textarea id="teacherChatInput" placeholder="例如：为七年级 2 班设计 8 课时的学业压力课程，侧重自我关怀；先给我学期大纲。" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendTeacherChat()}"></textarea>
     <div class="agent-compose-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="teacherSendButton" class="btn primary" onclick="sendTeacherChat()">发送 ↑</button></div></div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">关闭</button></div>`;
+    <div class="modal-actions"><button class="btn" onclick="sendTeacherChat(true)">根据教案生成 PPT 文件</button><button class="btn" onclick="closeModal()">关闭</button></div>`;
   document.querySelector('.modal').classList.add('agent-modal');
   document.getElementById('modalback').classList.add('show');
   if (teacherHistory.length) teacherHistory.forEach(item => addChatMessage(item.role === 'user' ? 'user' : 'teacher', item.content, false, 'teacherAgentMessages'));
@@ -108,10 +108,13 @@ window.openPlan = function (resource = null) {
   setTimeout(() => document.getElementById('teacherChatInput')?.focus(), 50);
 };
 
-window.sendTeacherChat = async function () {
+window.sendTeacherChat = async function (forcePpt = false) {
   if (teacherSending) return;
   const input = document.getElementById('teacherChatInput');
-  const message = input?.value.trim();
+  const typed = input?.value.trim() || '';
+  if (forcePpt && !typed && !teacherHistory.some(item => item.role === 'assistant')) return toast('请先生成教案，或在输入框粘贴教案。');
+  const message = typed || (forcePpt ? '根据当前教案生成可下载的 PPT 文件。' : '');
+  const exporting = forcePpt || (/(?:pptx?|幻灯片|课件)/i.test(message) && !/(?:不要|不需要|不用).{0,8}(?:ppt|课件)|只.{0,4}(?:草稿|大纲|脚本)/i.test(message));
   if (!message) { toast('先写下你的备课需求'); return; }
   teacherSending = true;
   addChatMessage('user', message, false, 'teacherAgentMessages'); input.value = '';
@@ -121,13 +124,22 @@ window.sendTeacherChat = async function () {
   try {
     const response = await fetch('/api/teacher/chat', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message, history: teacherHistory })
+      body: JSON.stringify({ message, history: teacherHistory, format: exporting ? 'pptx' : 'chat' })
     });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '生成失败');
     teacherHistory.push({ role: 'user', content: message }, { role: 'assistant', content: data.reply });
     teacherHistory = teacherHistory.slice(-12);
-    await persistTeacherDraft(message, data.reply);
     clearProgress('teacherAgentProgress'); addChatMessage('teacher', data.reply, false, 'teacherAgentMessages');
+    if (Array.isArray(data.slides)) {
+      const download = document.createElement('button');
+      download.className = 'btn primary';
+      download.textContent = '下载可编辑 PPT（' + data.slides.length + ' 页）';
+      download.onclick = () => window.downloadLessonSlides(data.slides);
+      const thread = document.getElementById('teacherAgentMessages');
+      thread.append(download);
+      thread.scrollTop = thread.scrollHeight;
+    }
+    await persistTeacherDraft(message, data.reply);
   } catch (error) {
     clearProgress('teacherAgentProgress'); addChatMessage('teacher', error.message || '暂时无法连接，请稍后重试。', false, 'teacherAgentMessages');
   } finally { clearTimeout(progressTimer); teacherSending = false; button.disabled = false; input.focus(); }

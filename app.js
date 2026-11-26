@@ -229,6 +229,7 @@ renderGameCatalog(activeFilter);
 
 let fullGameCatalog = [];
 function makeGameSteps(game) {
+  if (Array.isArray(game.steps) && game.steps.length) return game.steps;
   const close = ['我想试试', '我先看看', '我想跳过这一步'];
   const wrap = { title: '收尾：带走一个小发现', prompt: '你愿意带走哪一个小发现或下一步？也可以选择先不回答。', type: 'choice', options: ['记住一个发现', '做一件小事', '找信任的人聊聊', '先到这里'] };
   const opening = { title: '先选一种参与方式', prompt: `这是「${game.title}」。${game.desc}你可以自己完成、和同伴一起，也可以旁观或跳过。`, type: 'choice', options: ['我想自己试试', '我想和同伴一起', '我先看看', '我想跳过'] };
@@ -304,7 +305,7 @@ window.editGame = function (index, savedGame = null, resource = null, usageSumma
   const source = savedGame || games[index]; if (!source) return;
   document.getElementById('modalback')?.classList.remove('show');
   const book = savedGame?.steps || source.steps || gamePlaybooks[source.title] || Object.values(gamePlaybooks)[index] || [];
-  const steps = book.length ? book.map((step, stepIndex) => ({ ...step, title: step.title || `第 ${stepIndex + 1} 步`, prompt: step.prompt || '选择一个适合自己的方式完成这一步。', type: ['choice','text','timer','draw','turns','auction','storyTree','collabCanvas','auctionAnimated'].includes(step.type) ? step.type : 'choice', seconds: step.seconds || 20, options: step.options || [] })) : [
+  const steps = book.length ? book.map((step, stepIndex) => ({ ...step, title: step.title || `第 ${stepIndex + 1} 步`, prompt: step.prompt || '选择一个适合自己的方式完成这一步。', type: ['choice','text','timer','draw','turns','auction','storyTree','collabCanvas','auctionAnimated','shred'].includes(step.type) ? step.type : 'choice', seconds: step.seconds || 20, options: step.options || [] })) : [
     { title: '选择参与方式', prompt: '你可以自己完成，也可以和同伴一起。愿意时再开始。', type: 'choice', options: ['我想试试', '我先看看', '和同伴一起'] },
     { title: '探索一个小问题', prompt: '想一想这项活动对你有什么帮助。可以写下来，也可以跳过。', type: 'text', options: [] },
     { title: '选一个小行动', prompt: '选一件轻松、可实现的小事，为活动收尾。', type: 'choice', options: ['先休息一下', '找人聊聊', '做一件小事'] }
@@ -410,6 +411,8 @@ function renderGamePreview() {
     const reveal = document.createElement('p'); reveal.className = 'auction-reveal'; reveal.hidden = true;
     closeHammer.onclick = () => { if (![...allocation.values()].some(Boolean)) { toast('先把至少一枚星点放到一项支持上'); return; } reveal.hidden = false; reveal.innerHTML = `本轮拍卖完成 ✨<br><b>${[...allocation].filter(([, count]) => count).map(([name, count]) => `${escapeHtml(name)} ${count}枚`).join(' · ')}</b>`; board.classList.add('auction-closed'); closeHammer.disabled = true; };
     board.append(closeHammer, reveal); view.append(board); renderAuction();
+  } else if (step.type === 'shred') {
+    renderPaperShred(view, () => { answers[previewIndex] = '已碎纸'; });
   } else if (step.type === 'text') {
     const field = document.createElement('textarea'); field.className = 'game-preview-input'; field.placeholder = '写下愿意记录的内容，也可以留空或跳过'; field.value = answers[previewIndex] || ''; field.oninput = () => { answers[previewIndex] = field.value; }; view.append(field);
   } else if (step.type === 'draw') {
@@ -727,6 +730,8 @@ function renderGameStep() {
     const reveal = document.createElement('p'); reveal.className = 'auction-reveal'; reveal.hidden = true;
     hammer.onclick = () => { const chosen = [...allocation].filter(([, count]) => count); if (!chosen.length) return toast('先把至少一枚星点放到一项支持上'); reveal.hidden = false; reveal.innerHTML = `本轮拍卖完成 ✨<br><b>${chosen.map(([name, count]) => `${escapeHtml(name)} ${count}枚`).join(' · ')}</b>`; board.classList.add('auction-closed'); hammer.disabled = true; session.current.reflection = '小组敲槌完成资源分配'; };
     board.append(hammer, reveal); view.append(board); updateAuction();
+  } else if (step.type === 'shred') {
+    renderPaperShred(view, () => { session.current.choice = '已碎纸'; });
   } else if (step.type === 'text') {
     const field = document.createElement('textarea'); field.className = 'game-reflection'; field.placeholder = step.placeholder || '写一点点就好……';
     field.setAttribute('aria-label', step.placeholder || '写下你的想法'); field.oninput = () => { session.current.reflection = field.value; }; view.append(field);
@@ -1129,3 +1134,30 @@ window.savePlanResource = async function () {
   } catch (error) { toast(error.message || '保存失败，请稍后重试'); }
 };
 const savePlanButton = document.querySelector('#planResult .modal-actions .btn:nth-child(2)'); if (savePlanButton) savePlanButton.onclick = window.savePlanResource;
+
+function renderPaperShred(view, onFinish) {
+  const paper = document.createElement('textarea');
+  paper.placeholder = '写一个词，或直接投入空白纸条';
+  paper.setAttribute('aria-label','临时纸条');
+  paper.className = 'game-reflection';
+  const action = document.createElement('button');
+  action.className = 'btn primary';
+  action.textContent = '投入碎纸机';
+  action.onclick = () => {
+    paper.value = '';
+    paper.remove();
+    action.disabled = true;
+    action.textContent = '纸条已变成碎片';
+    const confetti = document.createElement('div');
+    confetti.className = 'paper-confetti';
+    confetti.setAttribute('aria-hidden','true');
+    confetti.textContent = '▧　▥　▨　▥　▧';
+    view.append(confetti);
+    onFinish();
+  };
+  view.append(paper, action);
+}
+const libraryTheme = document.createElement('style');
+libraryTheme.textContent = `#gameGrid .game{background:linear-gradient(155deg,#f3f0fc 0%,white 48%);border:1px solid #e2dfee;border-radius:20px;display:flex;flex-direction:column;gap:4px}
+#gameGrid .game:nth-child(even){background:linear-gradient(155deg,#e4f5ee,white 48%)}#gameGrid .game[hidden]{display:none}#gameGrid .game-foot{margin-top:auto;padding-top:12px}#gameGrid .gicon{align-self:flex-start;border-radius:16px;background:#fff;box-shadow:0 3px 12px #38483812}.paper-confetti{color:#806ab0;font-size:2rem;letter-spacing:5px}@media(prefers-reduced-motion:no-preference){.paper-confetti{animation:paperFall .65s ease-out}@keyframes paperFall{from{opacity:0;transform:translateY(-20px)}to{opacity:1;transform:translateY(0)}}}`;
+document.head.append(libraryTheme);

@@ -51,7 +51,7 @@ function chooseGameCandidates(message) {
   ];
   const boosted = new Set(intentGroups.filter(group => group.terms.some(term => normalized.includes(term))).flatMap(group => group.ids));
   const scored = GAME_CATALOG.map(game => ({ game, score: (game.keywords || []).reduce((score, keyword) => score + (normalized.includes(String(keyword).toLowerCase()) ? 3 : 0), 0) + (boosted.has(game.id) ? 5 : 0) }));
-  const safeStudentGames = new Set(['emotion-monster', 'emotion-weather', 'emotion-palette', 'emotion-thermometer', 'emotion-comic', 'draw-medal', 'safe-postcard', 'strength-garden', 'worry-cloud', 'character-challenge', 'inner-island', 'five-senses', 'breath-trace', 'breath-pinwheel', 'pause-menu', 'calm-jar', 'coping-menu', 'strength-power', 'resource-backpack', 'effort-trophy', 'kind-note', 'gratitude-hunt', 'success-mosaic', 'helped-me-puzzle', 'values-cards', 'future-postcard', 'spark-album', 'exam-toolbox', 'tiny-steps', 'choice-path']);
+  const safeStudentGames = new Set(['animal-companion','island-team','thought-sweep','paper-shred','emotion-monster', 'emotion-weather', 'emotion-palette', 'emotion-thermometer', 'emotion-comic', 'draw-medal', 'safe-postcard', 'strength-garden', 'worry-cloud', 'character-challenge', 'inner-island', 'five-senses', 'breath-trace', 'breath-pinwheel', 'pause-menu', 'calm-jar', 'coping-menu', 'strength-power', 'resource-backpack', 'effort-trophy', 'kind-note', 'gratitude-hunt', 'success-mosaic', 'helped-me-puzzle', 'values-cards', 'future-postcard', 'spark-album', 'exam-toolbox', 'tiny-steps', 'choice-path']);
   const safeForSolo = item => safeStudentGames.has(item.game.id);
   const candidates = scored.filter(item => item.score > 0 && safeForSolo(item)).sort((a, b) => b.score - a.score).map(item => item.game);
   return candidates;
@@ -279,10 +279,21 @@ async function askTokenDance(messages, maxTokens = 1600) {
   } finally { clearTimeout(timer); }
 }
 
-const teacherInstructions = 'You are an experienced school mental health educator and lesson designer. Help teachers create age-appropriate, reviewable mental health education materials. Use Simplified Chinese. Do not diagnose or claim treatment; label content as AI-generated drafts for teacher review. Respect student choice and avoid forced disclosure.';
-const studentInstructions = 'You are Xinban, a warm, psychology-informed companion for adolescents. Speak naturally in Simplified Chinese, like a kind and respectful friend. Listen and validate without sounding clinical. Do not lecture, diagnose, claim to be human or a doctor, promise secrecy, force optimism, or pressure the student to share or do an exercise. Positive psychology references are optional educational background: use them only when relevant, do not name frameworks unless asked, and never use them to dismiss pain or imply that attitude alone fixes a problem. Offer at most one small, concrete, optional next step; the student may decline. Do not infer feelings or personal facts that the student has not said. If there may be immediate self-harm, suicide, or harm-to-others risk, stop exercises and deep questioning; encourage contacting a trusted adult or school counselor now, and local emergency services if danger is immediate. Never claim that anyone was notified unless the app actually did so.';
+function reviewLessonDraft(answer) {
+  const rules = [
+    [/请(?:每位学生|同学们|学生)?(?:填写|输入|提交)(?:你的|自己的|真实)?(?:姓名|学号|病史|家庭住址)/, '要求采集个人信息'],
+    [/(?:你|该学生)(?:患有|患上了|被判定为)(?:抑郁症|焦虑症|人格障碍)/, '对学生作出诊断'],
+    [/(?:本活动|这个练习|本课程)(?:一定能|可以保证|能彻底)(?:治愈|根治|消除焦虑)/, '承诺治疗效果']
+  ];
+  for (const [pattern, reason] of rules) {
+    if (pattern.test(answer)) throw Object.assign(new Error('草稿需教师复核：' + reason + '。请调整要求并重新生成。'), {status:422});
+  }
+  return answer;
+}
+const teacherInstructions = 'You are an experienced school mental health educator and lesson designer. Help teachers create age-appropriate, reviewable mental health education materials. Use Simplified Chinese. Do not diagnose or claim treatment; label content as AI-generated drafts for teacher review. Respect student choice and avoid forced disclosure. 你是心理健康教育课程设计师。根据教师本轮任务和既有草稿修改。生成单课时，缺省初中、45分钟、班级授课，先说明假设。教案按课题、学情、认知情感行为目标、重难点、准备、教学过程表、板书、过程性评价、安全提示九项输出。45分钟建议暖场5、体验25、讨论10、总结5分钟。教案与逐页PPT使用同一核心活动；45分钟建议12至16页，每页标题不超18字、投影正文不超60字，另列视觉、讲者备注、互动提示。活动分享自愿可跳过，说明课堂记录可见范围，不承诺绝对保密。不诊断、不把作品解释为人格或创伤、不保证疗效、不要求姓名学号家庭病史。涉及危机时只讲信号识别、向可信成人求助及专业转介，教师负责陪伴与转介，不做治疗。教案结尾和PPT末页注明：本内容仅供心理健康教育与自我探索参考，不构成心理评估或诊断。输出前逐项检查风险、隐私、结构和时间，改写不符合项。仅请求学期大纲、局部修改或游戏JSON时保留该任务格式。';
+const studentInstructions = 'You are Xinban, a warm, psychology-informed companion for adolescents. Speak naturally in Simplified Chinese, like a kind and respectful friend. Listen and validate without sounding clinical. Do not lecture, diagnose, claim to be human or a doctor, promise secrecy, force optimism, or pressure the student to share or do an exercise. Positive psychology references are optional educational background: use them only when relevant, do not name frameworks unless asked, and never use them to dismiss pain or imply that attitude alone fixes a problem. Offer at most one small, concrete, optional next step; the student may decline. Do not infer feelings or personal facts that the student has not said. If there may be immediate self-harm, suicide, or harm-to-others risk, stop exercises and deep questioning; encourage contacting a trusted adult or school counselor now, and local emergency services if danger is immediate. Never claim that anyone was notified unless the app actually did so. 输出前检查：是否索取身份或病史、推断画作寓意、给学生贴标签、许诺治愈或绝对保密。发现即改写。尊重拒绝分享。若本轮表达当前自伤或伤人危险，即使没有固定风险词，也返回 safetyEscalation 为 true，不推荐游戏。危机教学材料或虚构故事不是当事人的风险陈述。';
 const urgentPattern = /(?:\u81ea\u6740|\u60f3\u6b7b|\u4e0d\u60f3\u6d3b|\u7ed3\u675f\u751f\u547d|\u4f24\u5bb3\u81ea\u5df1|\u5272\u8155|\u81ea\u6b8b|\u4f24\u5bb3\u522b\u4eba|suicid|kill myself|hurt myself|self[- ]harm|kill someone)/i;
-const urgentReply = 'Thank you for telling me. This sounds important. Let us pause the exercise. Please tell a trusted adult or school counselor now and stay near an adult if you can. If you or someone else is in immediate danger, contact local emergency services.';
+const urgentReply = '谢谢你告诉我。我们先停下练习。请现在联系一位你信任的大人或学校心理老师，让对方陪着你。如果你或他人正面临眼前的危险，请立即联系当地紧急救助服务。';
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -616,7 +627,7 @@ const server = http.createServer(async (req, res) => {
       const session = await requireRole(req, res, 'teacher'); if (!session) return;
       const body = await readBody(req), request = text(body.request, 2000), game = body.game && typeof body.game === 'object' ? body.game : {};
       if (!request || !text(game.title, 120) || !Array.isArray(game.steps)) return json(res, 400, { error: '璇锋彁渚涙父鎴忓唴瀹瑰拰淇敼瑕佹眰銆?' });
-      const safeTypes = ['choice','text','timer','draw','turns','auction','storyTree','collabCanvas','auctionAnimated'];
+      const safeTypes = ['choice','text','timer','draw','turns','auction','storyTree','collabCanvas','auctionAnimated','shred'];
       const safeStep = step => {
         const nodes = step?.nodes && typeof step.nodes === 'object' ? Object.fromEntries(Object.entries(step.nodes).slice(0, 16).map(([id, node]) => [text(id, 40), { text: text(node?.text, 500), end: Boolean(node?.end), options: Array.isArray(node?.options) ? node.options.slice(0, 4).map(option => ({ label: text(option?.label, 120), next: text(option?.next, 40) })).filter(option => option.label && option.next) : [] }]).filter(([id, node]) => id && node.text)) : undefined;
         return { title: text(step?.title, 120), prompt: text(step?.prompt, 1000), type: safeTypes.includes(step?.type) ? step.type : 'choice', seconds: Math.max(5, Math.min(180, Number(step?.seconds) || 20)), options: Array.isArray(step?.options) ? step.options.slice(0, 8).map(option => text(option, 160)).filter(Boolean) : [], ...(step?.type === 'storyTree' ? { start: text(step.start, 40) || 'start', nodes } : {}) };
@@ -658,8 +669,8 @@ const server = http.createServer(async (req, res) => {
       const message = text(body.message, 3000);
       if (!message) return json(res, 400, { error: '璇峰厛鍐欎笅浣犵殑澶囪闇€姹傘€?' });
       const history = Array.isArray(body.history) ? body.history.slice(-10).map(item => ({ role: item?.role === 'assistant' ? 'assistant' : 'user', content: text(item?.content, 3000) })).filter(item => item.content) : [];
-      const answer = await askTokenDance([{ role: 'system', content: `${teacherInstructions} 浣犳鍦ㄤ竴涓寔缁殑澶囪瀵硅瘽涓€傛暀甯堝彲浠ヨˉ鍏呰姹傘€佷慨鏀瑰綋鍓嶆柟妗堟垨璁╀綘鐢熸垚鏁欐/PPT/娓告垙鏂规锛涢渶瑕佺洿鎺ュ熀浜庝笂涓嬫枃淇敼锛屼笉瑕佸彧璇粹€滃彲浠モ€濄€傜己灏戝娈点€佽鏃躲€佺彮绾ф垨涓婚鏃讹紝鐢ㄧ畝鐭棶棰樿ˉ鍏呯‘璁ゃ€傛瘡娆″洖澶嶆竻妤氭爣娉ㄨ繖鏄崏绋裤€` }, ...history, { role: 'user', content: message }], 4600);
-      return json(res, 200, { reply: answer, model: MODEL });
+      const answer = await askTokenDance([{ role: 'system', content: teacherInstructions }, ...history, { role: 'user', content: message }], 4600);
+      return json(res, 200, { reply: reviewLessonDraft(answer), model: MODEL });
     } catch (error) { return json(res, error.status || 500, { error: error.message || '鐢熸垚澶辫触锛岃绋嶅悗閲嶈瘯銆?' }); }
   }
   if (req.method === 'POST' && url.pathname === '/api/teacher/outline') {
@@ -670,9 +681,9 @@ const server = http.createServer(async (req, res) => {
       if (!stage || !weeks || !theme) return json(res, 400, { error: '璇峰～鍐欏娈点€佽绋嬪懆鏈熷拰閲嶇偣涓婚銆?' });
       const answer = await askTokenDance([
         { role: 'system', content: teacherInstructions },
-        { role: 'user', content: `璇蜂负浠ヤ笅闇€姹傜敓鎴愬鏈熷績鐞嗘暀鑲茶绋嬪ぇ绾诧細\n瀛︽锛?{stage}\n鐝骇锛?{className || '鏈寚瀹?}\n璇炬椂锛?{weeks}\n閲嶇偣涓婚锛?{theme}\n棰濆瑕佹眰锛?{prompt || '鏃?}\n\n寤鸿鍖呭惈璇炬椂鎺掑竷銆佹瘡鑺備富棰樸€佺洰鏍囥€佸缓璁椿鍔ㄥ舰寮忋€侀€傞厤鐨勬暀鑲叉€ф柟娉曞拰鏁翠綋璁捐鎬濊矾銆傚彧鐢熸垚澶囪鑽夌銆` }
+        { role: 'user', content: `请生成学期大纲草稿。学段：${stage}；班级：${className}；课时：${weeks}；主题：${theme}；补充要求：${prompt}。逐课列出主题、目标、活动及安全提示。` }
       ], 4600);
-      return json(res, 200, { draft: answer, model: MODEL });
+      return json(res, 200, { draft: reviewLessonDraft(answer), model: MODEL });
     } catch (error) { return json(res, error.status || 500, { error: error.message || '鐢熸垚澶辫触锛岃绋嶅悗閲嶈瘯銆?' }); }
   }
   if (req.method === 'POST' && url.pathname === '/api/student/chat') {
@@ -749,7 +760,7 @@ const server = http.createServer(async (req, res) => {
             : gameTrigger.explicitRequest
               ? 'The student explicitly asked for an activity. Acknowledge the request and offer at most one relevant option.'
               : 'The student has described a clear emotional or situational difficulty. First show you understood the specific concern, then gently offer at most one relevant activity as an optional next step; do not make the recommendation the whole reply.';
-      const catalogPrompt = `\n[Game recommendation decision] ${triggerInstructions} These are the only eligible student-led activities for this turn. Do not recommend an activity that is absent from this list. Do not list game steps in the chat reply; the UI shows the activity card separately. When an eligible activity is listed and the app says an offer is allowed, select the single best-fit activity instead of returning null. Eligible activities: ${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}. Return only JSON: {"reply":"brief, natural Simplified Chinese response","gameId":"eligible id or null","reason":"short gentle reason or empty string"}.`;
+      const catalogPrompt = `\n[Game recommendation decision] ${triggerInstructions} These are the only eligible student-led activities for this turn. Do not recommend an activity that is absent from this list. Do not list game steps in the chat reply; the UI shows the activity card separately. When an eligible activity is listed and the app says an offer is allowed, select the single best-fit activity instead of returning null. Eligible activities: ${JSON.stringify(candidates.map(game => ({ id: game.id, title: game.title, desc: game.desc })))}. Return only JSON (set safetyEscalation true for a current personal safety crisis): {"safetyEscalation":false,"reply":"brief, natural Simplified Chinese response","gameId":"eligible id or null","reason":"short gentle reason or empty string"}.`;
       const contextDecision = contextualReview && canActuallyRecommend
         ? '\nFor this turn, override the activity selection instruction above: a card is OPTIONAL. Read the recent exchange for an expressed wish to act, difficulty putting something into words, a recurring unresolved worry, or interest in another form of expression. If one listed exercise serves that specific moment, choose its ID and briefly connect it to what the student said. For ordinary conversation, closing remarks, a wish to be heard, or no clear fit, return gameId null and reply normally without proposing an exercise. Never infer distress from turn count.'
         : '';
@@ -770,6 +781,11 @@ const server = http.createServer(async (req, res) => {
       const rawReply = await askTokenDance(modelMessages, 2000);
       let parsedReply = {};
       try { const cleaned = rawReply.replace(/^```(?:json)?\s*|\s*```$/g, '').trim(); parsedReply = JSON.parse(cleaned); } catch { try { parsedReply = JSON.parse(rawReply.match(/\{[\s\S]*\}/)?.[0] || ''); } catch { parsedReply = { reply: rawReply, gameId: null, reason: '' }; } }
+      if (parsedReply?.safetyEscalation === true) {
+        conversation.messages.push({role:'assistant', content:urgentReply, safetyEscalation:true, createdAt:new Date().toISOString()});
+        await writeMemory(memory, studentId);
+        return json(res, 200, {reply:urgentReply, safetyEscalation:true});
+      }
       const reply = text(parsedReply.reply, 5000) || rawReply;
       const selected = candidates.find(game => game.id === text(parsedReply.gameId, 80)) || null;
       // Do not let an LLM's null/invalid gameId silently suppress an app-approved recommendation.

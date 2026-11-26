@@ -256,11 +256,13 @@ async function askTokenDance(messages, maxTokens = 1600) {
   try {
     const output = [];
     let nextMessages = messages;
+    let budget = maxTokens;
+    let retriedEmpty = false;
     for (let part = 0; part < 3; part += 1) {
       const upstream = await fetch(`${BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: { authorization: `Bearer ${API_KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, messages: nextMessages, temperature: 0.65, max_tokens: maxTokens }),
+        body: JSON.stringify({ model: MODEL, messages: nextMessages, temperature: 0.65, max_tokens: budget }),
         signal: controller.signal
       });
       const payload = await upstream.json().catch(() => ({}));
@@ -269,8 +271,22 @@ async function askTokenDance(messages, maxTokens = 1600) {
         throw Object.assign(new Error(detail), { status: 502 });
       }
       const choice = payload?.choices?.[0];
-      const answer = choice?.message?.content;
-      if (typeof answer !== 'string' || !answer.trim()) throw Object.assign(new Error('The model returned an empty response.'), { status: 502 });
+      const content = choice?.message?.content;
+      const answer = Array.isArray(content)
+        ? content.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('')
+        : typeof content === 'string' ? content : '';
+      if (!answer.trim()) {
+        const reason = choice?.finish_reason;
+        console.warn('Empty model reply', { model: MODEL, status: upstream.status, reason, part, budget, retriedEmpty });
+        if (reason === 'content_filter' || choice?.message?.refusal) throw Object.assign(new Error('模型未能提供这次内容，请调整活动描述后再试。'), {status:502});
+        if (!retriedEmpty && choice && (!reason || reason === 'stop' || reason === 'length')) {
+          retriedEmpty = true;
+          if (reason === 'length') budget = Math.max(budget, Math.min(8192, budget * 2));
+          part -= 1;
+          continue;
+        }
+        throw Object.assign(new Error(reason === 'length' ? '模型已用完本次输出额度，仍未生成正文。可以先要求生成前六页 PPT。' : '模型服务没有返回可显示的正文，请稍后重试。'), {status:502});
+      }
       output.push(answer.trim());
       if (choice.finish_reason !== 'length' || part === 2) break;
       nextMessages = [...nextMessages, { role: 'assistant', content: answer }, { role: 'user', content: 'Continue exactly where you stopped. Do not repeat earlier text; finish the response completely.' }];

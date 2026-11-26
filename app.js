@@ -129,7 +129,7 @@ window.sendTeacherChat = async function () {
     await persistTeacherDraft(message, data.reply);
     clearProgress('teacherAgentProgress'); addChatMessage('teacher', data.reply, false, 'teacherAgentMessages');
   } catch (error) {
-    clearProgress('teacherAgentProgress'); addChatMessage('teacher', `${error.message || '暂时无法连接'}。请检查后端和 TokenDance 配置后重试。`, false, 'teacherAgentMessages');
+    clearProgress('teacherAgentProgress'); addChatMessage('teacher', error.message || '暂时无法连接，请稍后重试。', false, 'teacherAgentMessages');
   } finally { clearTimeout(progressTimer); teacherSending = false; button.disabled = false; input.focus(); }
 };
 

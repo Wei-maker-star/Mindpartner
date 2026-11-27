@@ -105,11 +105,13 @@ window.openPlan = function (resource = null) {
   document.getElementById('modalback').classList.add('show');
   if (teacherHistory.length) teacherHistory.forEach(item => addChatMessage(item.role === 'user' ? 'user' : 'teacher', item.content, false, 'teacherAgentMessages'));
   else addChatMessage('teacher', '把你的备课想法发给我。我可以先整理课程大纲，再继续生成单课教案、PPT 大纲和配套游戏。', false, 'teacherAgentMessages');
+  installDictation(document.getElementById('teacherChatInput'), document.getElementById('teacherSendButton'));
   setTimeout(() => document.getElementById('teacherChatInput')?.focus(), 50);
 };
 
 window.sendTeacherChat = async function (forcePpt = false) {
   if (teacherSending) return;
+  cancelDictation();
   const input = document.getElementById('teacherChatInput');
   const typed = input?.value.trim() || '';
   if (forcePpt && !typed && !teacherHistory.some(item => item.role === 'assistant')) return toast('请先生成教案，或在输入框粘贴教案。');
@@ -178,7 +180,7 @@ window.sendText = async function (message) {
     clearProgress('studentProgress'); addChatMessage('assistant', `${error.message || '暂时无法连接'}。请稍后再试；如果你需要马上找人帮忙，请联系信任的大人或学校心理老师。`);
   } finally { sendingStudentMessage = false; button.disabled = false; }
 };
-window.sendChat = function () { const input = document.getElementById('chatInput'); const message = input.value.trim(); if (!message || sendingStudentMessage) return; input.value = ''; window.sendText(message); };
+window.sendChat = function () { cancelDictation(); const input = document.getElementById('chatInput'); const message = input.value.trim(); if (!message || sendingStudentMessage) return; input.value = ''; window.sendText(message); };
 
 const agentStyle = document.createElement('style');
 agentStyle.textContent = `.agent-modal{width:min(760px,100%);height:min(85vh,820px);display:flex;flex-direction:column}.agent-modal #planForm{display:flex!important;flex-direction:column;min-height:0;flex:1}.agent-intro{display:flex;gap:13px;align-items:center;padding:12px 14px;background:#f1f6f1;border-radius:12px;margin-bottom:12px}.agent-spark{width:38px;height:38px;border-radius:12px;background:white;color:#326c5d;display:grid;place-items:center;font-size:22px}.agent-intro b{font-size:13px}.agent-intro small{display:block;color:#77857f;font-size:11px;line-height:1.6;margin-top:4px}.agent-messages{flex:1;min-height:150px;overflow:auto;padding:6px 2px}.agent-messages .msg{align-items:flex-start}.agent-messages .bubble{white-space:pre-wrap;max-width:90%}.agent-messages .msg:not(.user) .bubble{background:#f1f5f0}.agent-progress{padding:7px 4px 12px;color:#6f8177;font-size:11px}.agent-progress-label{display:flex;align-items:center;gap:8px;margin-bottom:8px}.agent-progress-track{height:5px;border-radius:99px;background:#edf1ec;overflow:hidden}.agent-progress-track i{height:100%;display:block;width:32%;border-radius:99px;background:#68a083;animation:agent-progress 1.25s ease-in-out infinite alternate}@keyframes agent-progress{from{transform:translateX(0)}to{transform:translateX(205%)}}.agent-spinner{width:13px;height:13px;border:2px solid #d9e7de;border-top-color:#468367;border-radius:50%;animation:agent-spin .75s linear infinite}@keyframes agent-spin{to{transform:rotate(360deg)}}.agent-compose{border:1px solid #e4eae4;border-radius:12px;padding:9px;background:#fff}.agent-compose textarea{width:100%;min-height:74px;max-height:150px;resize:vertical;border:0;outline:0;margin:0;padding:6px;font:inherit;font-size:13px}.agent-compose-foot{display:flex;align-items:center;justify-content:space-between;color:#9aa49e;font-size:10px}.agent-compose-foot .btn{padding:8px 14px}.agent-modal>.modal-actions{margin-top:8px}.agent-modal .agent-messages .msg .tiny{color:#547a66;background:#edf5ef;border-radius:50%;width:27px;height:27px;text-align:center;line-height:27px;font-size:14px;flex:none}`;
@@ -987,6 +989,73 @@ function installStudentTextarea() {
   old.replaceWith(area);
 }
 installStudentTextarea();
+let cancelDictation = () => {};
+function installDictation(field, before) {
+  if (!field || !before) return;
+  const mic = document.createElement('button');
+  mic.type = 'button';
+  mic.className = 'btn small';
+  mic.style.width = 'auto';
+  mic.textContent = '🎙 语音';
+  mic.title = '普通话转文字，由浏览器提供识别服务；确认后点发送';
+  mic.setAttribute('aria-label', mic.title);
+  mic.setAttribute('aria-pressed', 'false');
+  before.before(mic);
+  let session;
+  mic.onclick = () => {
+    if (session) { session.stop(); return; }
+    cancelDictation();
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition || !window.isSecureContext) {
+      toast('当前页面无法使用浏览器语音识别，可用系统输入法听写后发送。');
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    const start = field.selectionStart, end = field.selectionEnd;
+    const prefix = field.value.slice(0, start), suffix = field.value.slice(end);
+    session = recognition;
+    const cleanup = () => {
+      if (session !== recognition) return;
+      session = null;
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', checkVisible);
+      field.removeEventListener('beforeinput', abort);
+      mic.textContent = '🎙 语音';
+      mic.setAttribute('aria-pressed', 'false');
+      cancelDictation = () => {};
+    };
+    const abort = () => { cleanup(); recognition.abort(); };
+    const checkVisible = () => {
+      if (document.hidden || !field.isConnected || !field.getClientRects().length) abort();
+    };
+    const observer = new MutationObserver(checkVisible);
+    observer.observe(document.body, {attributes:true, childList:true, subtree:true, attributeFilter:['class','style','hidden']});
+    document.addEventListener('visibilitychange', checkVisible);
+    field.addEventListener('beforeinput', abort, {once:true});
+    cancelDictation = abort;
+    recognition.onresult = event => {
+      if (session !== recognition) return;
+      const phrase = Array.from(event.results, result => result[0].transcript).join('');
+      field.value = prefix + phrase + suffix;
+      field.setSelectionRange(prefix.length + phrase.length, prefix.length + phrase.length);
+    };
+    recognition.onend = cleanup;
+    recognition.onerror = event => {
+      if (session !== recognition) return;
+      cleanup();
+      const hints = {'not-allowed':'请在浏览器的网站权限中允许使用麦克风。','audio-capture':'未检测到可用麦克风。','no-speech':'没有听清，可以再试一次。',network:'浏览器语音服务连接失败，可用系统输入法听写。'};
+      toast(hints[event.error] || '语音识别未完成，可以重新听写或键入文字。');
+    };
+    mic.textContent = '停止听写';
+    mic.setAttribute('aria-pressed', 'true');
+    try { recognition.start(); } catch { cleanup(); toast('麦克风未能启动，请检查浏览器权限。'); }
+  };
+}
+const studentDictationField = document.getElementById('chatInput');
+installDictation(studentDictationField, studentDictationField?.parentElement.querySelector('button'));
 const loginStyle = document.createElement('style');
 loginStyle.textContent = `.chat-input{align-items:flex-end}.chat-input textarea{flex:1;min-width:0;min-height:82px;max-height:150px;resize:vertical;border:1px solid var(--line);border-radius:12px;padding:13px;outline:none;font:inherit;font-size:14px;line-height:1.6}.chat-input textarea:focus{border-color:#9cbeab;box-shadow:0 0 0 3px #326c5d12}.chat-input button{height:46px;flex:none}.animal-orb{width:104px;height:104px;margin:12px auto;border-radius:38% 45% 42% 47%;display:grid;place-items:center;position:relative;font-size:62px;box-shadow:inset 0 -7px 14px #496d5010}.animal-orb i{position:absolute;right:5px;bottom:4px;font-size:25px;font-style:normal}.login-overlay{position:fixed;inset:0;z-index:100;background:linear-gradient(145deg,#eaf3eeed,#f6f7f1f2);display:grid;place-items:center;padding:18px}.login-card{width:min(480px,100%);background:#fff;border:1px solid #e6ede7;border-radius:22px;padding:32px;box-shadow:0 22px 90px #25433320}.login-brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}.login-brand .brandmark{width:44px;height:44px}.login-card h1{font-size:24px;margin:0 0 8px}.login-card p{font-size:12px;color:#77857f;line-height:1.8;margin:0 0 20px}.login-roles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}.login-role{border:1px solid #e6ece6;border-radius:12px;padding:16px;background:#fff;text-align:left}.login-role.selected{border-color:#79a98d;background:#f1f7f2;color:#326c5d}.login-role b{display:block;font-size:14px;margin-bottom:5px}.login-role small{color:#86928b;font-size:10px}.login-mode{display:flex;gap:6px;padding:4px;background:#f4f7f3;border-radius:9px;margin:0 0 16px}.login-mode button{flex:1;padding:9px;background:transparent;border-radius:7px;color:#75837a;font-size:11px}.login-mode button.selected{background:white;color:#326c5d;font-weight:600;box-shadow:0 1px 4px #1b382414}.login-card label{display:block;color:#64746b;font-size:11px}.login-card input{width:100%;padding:12px;border:1px solid #e3eae3;border-radius:9px;margin:7px 0 14px}.login-card .login-enter{width:100%;padding:12px}.login-error{margin-top:10px;padding:10px 12px;border-radius:9px;background:#fff0ed;color:#a64032;font-size:12px;line-height:1.6}.login-safety{margin-top:14px;font-size:10px!important;text-align:center}.topright .logout{font-size:10px;padding:7px 9px}@media(max-width:520px){.login-card{padding:24px 20px}.chat-input{padding:10px}.chat-input textarea{min-height:72px}}`;
 document.head.append(loginStyle);
